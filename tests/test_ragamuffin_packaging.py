@@ -26,7 +26,8 @@ def test_ragamuffin_pyproject_exposes_console_script(app_path: Path):
     assert pyproject["project"]["requires-python"] == ">=3.11"
     assert pyproject["project"]["scripts"]["ragamuffin"] == "ragamuffin_app:main"
     assert pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [
-        "ragamuffin_app"
+        "ragamuffin_app",
+        "ragamuffin_eval",
     ]
 
 

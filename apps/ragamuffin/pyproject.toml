@@ -20,4 +20,4 @@ dependencies = [
 ragamuffin = "ragamuffin_app:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["ragamuffin_app"]
+packages = ["ragamuffin_app", "ragamuffin_eval"]

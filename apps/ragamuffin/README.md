@@ -26,3 +26,10 @@ The app should own:
 The app should not own duplicate platform logic for dense retrieval, BM25, RRF,
 confidence gating, grounding, citations, or graph expansion. Those belong in
 `src/cam_rag`.
+
+## Evaluation fixtures
+
+Tiny document-folder evaluation fixtures live in
+`eval/document_folder_sample/`. The `docs/` subfolder is a Ragamuffin input
+folder, and `golden_questions.jsonl` contains sample questions with expected
+source files and required answer terms.

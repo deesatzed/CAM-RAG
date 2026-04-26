@@ -1,0 +1,8 @@
+ICU Escalation Protocol
+
+Transfer to the intensive care unit is appropriate when a patient needs
+continuous vasopressor support, invasive ventilation, or bedside monitoring
+that cannot be provided on the ward.
+
+Before transfer, document the reason for escalation and call the receiving ICU
+clinician.
