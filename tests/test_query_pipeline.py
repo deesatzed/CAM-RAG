@@ -23,8 +23,9 @@ def test_query_document_folder_returns_cited_evidence(tmp_path: Path):
     assert answer.grounded is True
     assert answer.citations
     assert answer.citations[0].source == "triage.md"
-    assert answer.evidence[0].retriever == "sparse_bm25"
+    assert answer.evidence[0].retriever == "hybrid_rrf"
     assert "vital" in answer.evidence[0].signals["matched_terms"]
+    assert "sparse" in answer.evidence[0].signals["source_ranks"]
 
 
 def test_query_document_folder_reports_no_evidence(tmp_path: Path):

@@ -8,7 +8,7 @@ from cam_rag.documents import read_document_folder
 from cam_rag.documents.chunking import chunk_documents
 from cam_rag.rag.models import Citation, CorpusDocument, Evidence, RAGAnswer, RAGTrace
 from cam_rag.rag.spec import RAGAppSpec
-from cam_rag.retrieval import RetrievalDocument, SparseBM25Retriever
+from cam_rag.retrieval import DenseVectorRetriever, RetrievalDocument, SparseBM25Retriever, rrf_fuse
 
 
 def query(question: str, documents: list[CorpusDocument], spec: RAGAppSpec) -> RAGAnswer:
@@ -23,7 +23,7 @@ def query(question: str, documents: list[CorpusDocument], spec: RAGAppSpec) -> R
 
     trace = RAGTrace(query_type="retrieval_only")
     trace.add("chunk_documents")
-    trace.add("lexical_rank")
+    trace.add("hybrid_rank")
     trace.retrieval_stats = {
         "documents": len(documents),
         "chunks": len(chunks),
@@ -55,7 +55,7 @@ def query_document_folder(
     trace = RAGTrace(query_type="retrieval_only")
     trace.add("load_documents")
     trace.add("chunk_documents")
-    trace.add("lexical_rank")
+    trace.add("hybrid_rank")
     trace.retrieval_stats = {
         "documents": len(documents),
         "chunks": len(chunks),
@@ -99,23 +99,36 @@ def _rank_chunks(query: str, chunks, spec: RAGAppSpec, *, limit: int) -> list[Ev
         )
         for chunk in chunks
     ]
-    retriever = SparseBM25Retriever(documents, tokenizer=spec.tokenize)
-    results = retriever.retrieve(query, k=limit)
+    sparse_results = SparseBM25Retriever(documents, tokenizer=spec.tokenize).retrieve(
+        query, k=max(limit, spec.retrieval_top_k)
+    )
+    dense_results = DenseVectorRetriever(documents).retrieve(
+        query,
+        k=max(limit, spec.retrieval_top_k),
+    )
+    fused_results = rrf_fuse(
+        dense_results,
+        sparse_results,
+        names=["dense", "sparse"],
+        weights={"dense": spec.dense_weight, "sparse": spec.sparse_weight},
+    )[:limit]
 
     query_terms = set(spec.tokenize(query))
     evidence: list[Evidence] = []
-    for result in results:
+    for result in fused_results:
         chunk = chunk_by_id[result.doc_id]
         matched_terms = sorted(query_terms.intersection(spec.tokenize(chunk.text)))
         evidence.append(
             Evidence(
                 chunk=chunk,
-                score=result.score,
-                retriever="sparse_bm25",
+                score=result.rrf_score,
+                retriever="hybrid_rrf",
                 rank=result.rank,
                 signals={
                     "matched_terms": matched_terms,
-                    "bm25_score": result.score,
+                    "source_ranks": result.source_ranks,
+                    "source_scores": result.source_scores,
+                    "rrf_score": result.rrf_score,
                 },
             )
         )
