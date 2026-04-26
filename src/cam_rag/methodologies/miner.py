@@ -7,7 +7,6 @@ from pathlib import Path
 from cam_rag.methodologies.models import Family, Membership, Methodology
 from cam_rag.methodologies.store import JsonStore
 
-
 CODE_EXTENSIONS = {
     ".py": "python",
     ".js": "javascript",

@@ -9,7 +9,6 @@ from pathlib import Path
 from cam_rag.rag.models import CorpusDocument
 from cam_rag.rag.spec import RAGAppSpec
 
-
 TEXT_EXTENSIONS = {".md", ".txt"}
 JSON_EXTENSIONS = {".json", ".jsonl"}
 
