@@ -26,6 +26,8 @@ def test_query_document_folder_returns_cited_evidence(tmp_path: Path):
     assert answer.evidence[0].retriever == "hybrid_rrf"
     assert "vital" in answer.evidence[0].signals["matched_terms"]
     assert "sparse" in answer.evidence[0].signals["source_ranks"]
+    assert answer.confidence > 0
+    assert answer.trace.confidence_details["grounding"]["grounded"] is True
 
 
 def test_query_document_folder_reports_no_evidence(tmp_path: Path):
@@ -41,5 +43,6 @@ def test_query_document_folder_reports_no_evidence(tmp_path: Path):
     )
 
     assert answer.grounded is False
+    assert answer.confidence == 0.0
     assert answer.citations == []
     assert "No cited evidence" in answer.answer

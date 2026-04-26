@@ -9,6 +9,7 @@ from cam_rag.documents.chunking import chunk_documents
 from cam_rag.rag.models import Citation, CorpusDocument, Evidence, RAGAnswer, RAGTrace
 from cam_rag.rag.spec import RAGAppSpec
 from cam_rag.retrieval import DenseVectorRetriever, RetrievalDocument, SparseBM25Retriever, rrf_fuse
+from cam_rag.verification import score_retrieval_confidence, verify_citations_grounded
 
 
 def query(question: str, documents: list[CorpusDocument], spec: RAGAppSpec) -> RAGAnswer:
@@ -77,14 +78,21 @@ def _answer_from_evidence(query_text: str, evidence: list[Evidence], trace: RAGT
         )
         for item in evidence
     ]
-    confidence = evidence[0].score if evidence else 0.0
+    confidence_report = score_retrieval_confidence(evidence)
+    grounding_report = verify_citations_grounded(citations, evidence)
+    trace.add("score_confidence")
+    trace.add("verify_grounding")
+    trace.confidence_details = {
+        **confidence_report.to_dict(),
+        "grounding": grounding_report.to_dict(),
+    }
     answer = _retrieval_only_answer(query_text, evidence)
     return RAGAnswer(
         answer=answer,
         evidence=evidence,
         citations=citations,
-        confidence=confidence,
-        grounded=bool(evidence),
+        confidence=confidence_report.overall,
+        grounded=grounding_report.grounded,
         trace=trace,
     )
 
