@@ -9,6 +9,8 @@ def test_generic_app_spec_defaults():
     assert ".pdf" in spec.supported_extensions
     assert ".docx" in spec.supported_extensions
     assert spec.policy.require_citations is True
+    assert spec.query_expansion_enabled is False
+    assert spec.expansion_terms == 5
 
 
 def test_ragamuffin_can_be_represented_as_app_spec():

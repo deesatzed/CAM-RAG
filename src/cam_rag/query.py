@@ -9,6 +9,7 @@ from cam_rag.documents.chunking import chunk_documents
 from cam_rag.rag.models import Citation, CorpusDocument, Evidence, RAGAnswer, RAGTrace
 from cam_rag.rag.spec import RAGAppSpec
 from cam_rag.retrieval import DenseVectorRetriever, RetrievalDocument, SparseBM25Retriever, rrf_fuse
+from cam_rag.retrieval.query_expansion import build_expanded_query
 from cam_rag.verification import score_retrieval_confidence, verify_citations_grounded
 
 
@@ -20,15 +21,18 @@ def query(question: str, documents: list[CorpusDocument], spec: RAGAppSpec) -> R
     """
 
     chunks = [chunk for chunk in chunk_documents(documents) if spec.accepts_chunk(chunk)]
-    evidence = _rank_chunks(question, chunks, spec, limit=spec.retrieval_top_k)
+    evidence, expanded_query = _rank_chunks(question, chunks, spec, limit=spec.retrieval_top_k)
 
     trace = RAGTrace(query_type="retrieval_only")
     trace.add("chunk_documents")
+    if expanded_query != question:
+        trace.add("query_expansion")
     trace.add("hybrid_rank")
     trace.retrieval_stats = {
         "documents": len(documents),
         "chunks": len(chunks),
         "evidence": len(evidence),
+        "expanded_query": expanded_query,
     }
     return _answer_from_evidence(question, evidence, trace)
 
@@ -51,16 +55,19 @@ def query_document_folder(
     documents = read_document_folder(docs_dir, spec)
     chunks = [chunk for chunk in chunk_documents(documents) if spec.accepts_chunk(chunk)]
     top_k = limit or spec.retrieval_top_k
-    evidence = _rank_chunks(question, chunks, spec, limit=top_k)
+    evidence, expanded_query = _rank_chunks(question, chunks, spec, limit=top_k)
 
     trace = RAGTrace(query_type="retrieval_only")
     trace.add("load_documents")
     trace.add("chunk_documents")
+    if expanded_query != question:
+        trace.add("query_expansion")
     trace.add("hybrid_rank")
     trace.retrieval_stats = {
         "documents": len(documents),
         "chunks": len(chunks),
         "evidence": len(evidence),
+        "expanded_query": expanded_query,
     }
     return _answer_from_evidence(question, evidence, trace)
 
@@ -97,7 +104,7 @@ def _answer_from_evidence(query_text: str, evidence: list[Evidence], trace: RAGT
     )
 
 
-def _rank_chunks(query: str, chunks, spec: RAGAppSpec, *, limit: int) -> list[Evidence]:
+def _rank_chunks(query: str, chunks, spec: RAGAppSpec, *, limit: int) -> tuple[list[Evidence], str]:
     chunk_by_id = {chunk.id: chunk for chunk in chunks}
     documents = [
         RetrievalDocument(
@@ -107,6 +114,28 @@ def _rank_chunks(query: str, chunks, spec: RAGAppSpec, *, limit: int) -> list[Ev
         )
         for chunk in chunks
     ]
+    evidence = _retrieve_evidence(query, documents, chunk_by_id, spec, limit=limit)
+    expanded_query = query
+    if spec.query_expansion_enabled and evidence:
+        expanded_query = build_expanded_query(
+            query,
+            evidence,
+            tokenizer=spec.tokenize,
+            max_terms=spec.expansion_terms,
+        )
+        if expanded_query != query:
+            evidence = _retrieve_evidence(expanded_query, documents, chunk_by_id, spec, limit=limit)
+    return evidence, expanded_query
+
+
+def _retrieve_evidence(
+    query: str,
+    documents: list[RetrievalDocument],
+    chunk_by_id: dict,
+    spec: RAGAppSpec,
+    *,
+    limit: int,
+) -> list[Evidence]:
     sparse_results = SparseBM25Retriever(documents, tokenizer=spec.tokenize).retrieve(
         query, k=max(limit, spec.retrieval_top_k)
     )

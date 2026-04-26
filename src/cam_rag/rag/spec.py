@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -18,7 +19,7 @@ class Tokenizer(Protocol):
 def default_tokenizer(text: str) -> list[str]:
     """Simple tokenizer for generic app defaults and tests."""
 
-    return [part.lower() for part in text.split() if part.strip()]
+    return [match.group(0).lower() for match in re.finditer(r"[A-Za-z0-9]+", text)]
 
 
 @dataclass(slots=True)
@@ -44,6 +45,8 @@ class RAGAppSpec:
     retrieval_top_k: int = 10
     dense_weight: float = 0.6
     sparse_weight: float = 0.4
+    query_expansion_enabled: bool = False
+    expansion_terms: int = 5
     reranker_model: str | None = None
     domain_tags: tuple[str, ...] = ()
 
