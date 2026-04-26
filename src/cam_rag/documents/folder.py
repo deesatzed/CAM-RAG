@@ -6,19 +6,20 @@ import hashlib
 import json
 from pathlib import Path
 
+from cam_rag.documents.parsers import extract_title, parse_docx_text, parse_pdf_text
 from cam_rag.rag.models import CorpusDocument
 from cam_rag.rag.spec import RAGAppSpec
 
 TEXT_EXTENSIONS = {".md", ".txt"}
 JSON_EXTENSIONS = {".json", ".jsonl"}
+PARSER_EXTENSIONS = {".pdf", ".docx"}
 
 
 def read_document_folder(path: str | Path, spec: RAGAppSpec) -> list[CorpusDocument]:
     """Read supported files from a folder into normalized platform documents.
 
-    This initial implementation supports text/markdown and common JSON export
-    shapes. PDF and DOCX are intentionally represented in the app spec now and
-    will be wired through parser backends in the next migration step.
+    Supports text/markdown, common JSON export shapes, and optional PDF/DOCX
+    parser backends.
     """
 
     root = Path(path)
@@ -41,6 +42,10 @@ def read_document_folder(path: str | Path, spec: RAGAppSpec) -> list[CorpusDocum
                 documents.append(document)
         elif ext in JSON_EXTENSIONS:
             documents.extend(_read_json_documents(root, file_path))
+        elif ext in PARSER_EXTENSIONS:
+            document = _read_parsed_document(root, file_path)
+            if document.text.strip():
+                documents.append(document)
     return documents
 
 
@@ -54,6 +59,26 @@ def _read_text_document(root: Path, file_path: Path) -> CorpusDocument:
         title=_extract_markdown_title(text) or file_path.stem,
         format=file_path.suffix.lower().lstrip("."),
         metadata={"path": rel},
+    )
+
+
+def _read_parsed_document(root: Path, file_path: Path) -> CorpusDocument:
+    rel = str(file_path.relative_to(root))
+    ext = file_path.suffix.lower()
+    if ext == ".pdf":
+        text, parser_metadata = parse_pdf_text(file_path)
+    elif ext == ".docx":
+        text, parser_metadata = parse_docx_text(file_path)
+    else:
+        raise ValueError(f"unsupported parsed document extension: {ext}")
+
+    return CorpusDocument(
+        id=_stable_id(rel, text),
+        text=text,
+        source=rel,
+        title=extract_title(text, file_path.stem),
+        format=ext.lstrip("."),
+        metadata={"path": rel, **parser_metadata},
     )
 
 

@@ -3,6 +3,18 @@
 Ragamuffin is the first application built on `cam_rag`: a document-folder RAG
 app for clinical and protocol documents.
 
+Run it from this package path with:
+
+```sh
+python -m ragamuffin_app <docs_dir> <question>
+```
+
+When installed as a package, it exposes the same CLI as:
+
+```sh
+ragamuffin <docs_dir> <question>
+```
+
 The app should own:
 
 - document-folder UX

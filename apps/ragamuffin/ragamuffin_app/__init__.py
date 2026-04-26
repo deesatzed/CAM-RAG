@@ -7,11 +7,13 @@ from ragamuffin_app.app import (
     query_documents,
     ragamuffin_spec,
 )
+from ragamuffin_app.tokenizer import medical_tokenize
 
 __all__ = [
     "QueryBackendMissingError",
     "load_documents",
     "main",
+    "medical_tokenize",
     "query_documents",
     "ragamuffin_spec",
 ]

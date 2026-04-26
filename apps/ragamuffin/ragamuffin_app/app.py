@@ -14,30 +14,11 @@ from typing import Any
 
 from cam_rag.documents import read_document_folder
 from cam_rag.rag import CorpusDocument, RAGAppSpec, RAGPolicy
+from ragamuffin_app.tokenizer import medical_tokenize
 
 
 class QueryBackendMissingError(RuntimeError):
     """Raised when the platform query API has not been wired yet."""
-
-
-def clinical_tokenizer(text: str) -> list[str]:
-    """Small clinical tokenizer placeholder until the full Ragamuffin tokenizer ports."""
-
-    expansions = {
-        "ed": "emergency department",
-        "icu": "intensive care unit",
-        "bbp": "bloodborne pathogen",
-    }
-    tokens: list[str] = []
-    for raw in text.lower().replace("/", " ").split():
-        clean = raw.strip(".,:;()[]{}")
-        if not clean:
-            continue
-        tokens.append(clean)
-        expanded = expansions.get(clean)
-        if expanded:
-            tokens.extend(expanded.split())
-    return tokens
 
 
 def ragamuffin_spec() -> RAGAppSpec:
@@ -47,7 +28,7 @@ def ragamuffin_spec() -> RAGAppSpec:
         name="ragamuffin",
         description="Clinical and protocol document-folder RAG",
         supported_extensions=(".md", ".txt", ".json", ".jsonl", ".pdf", ".docx"),
-        tokenizer=clinical_tokenizer,
+        tokenizer=medical_tokenize,
         policy=RAGPolicy(
             enforce_phi=True,
             enforce_pii=True,

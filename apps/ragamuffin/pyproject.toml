@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ragamuffin"
+version = "0.1.0"
+description = "Clinical and protocol document-folder RAG app built on cam_rag."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "deesatzed" },
+]
+dependencies = [
+    "cam-rag-platform>=0.1.0",
+]
+
+[project.scripts]
+ragamuffin = "ragamuffin_app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ragamuffin_app"]
