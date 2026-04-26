@@ -12,5 +12,6 @@ dist/
 build/
 data/
 indexes/
+benchmarks/mteb/results/
 *.db
 *.sqlite

@@ -43,8 +43,29 @@ python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
+## Benchmarking
+
+MTEB benchmarking is optional and targets the embedding layer, not the complete
+RAG answer pipeline.
+
+```bash
+python -m pip install -e ".[benchmark]"
+python benchmarks/mteb/run_retrieval.py \
+  --model hash \
+  --tasks SciFactRetrieval NFCorpusRetrieval \
+  --output-folder benchmarks/mteb/results/hash
+```
+
+Use `hash` only as a harness smoke test. For meaningful embedding quality,
+benchmark model-backed embeddings such as `intfloat/e5-base-v2`, BGE, Jina,
+Nomic, OpenAI, or Voyage adapters, then plug the winning backend into
+`DenseVectorRetriever`.
+
 ## Current Status
 
-Initial clean scaffold. The next step is to port `repofrax` into
-`cam_rag.methodologies` with its existing tests, then extract Ragamuffin's
-document RAG pipeline behind the platform contracts.
+Alpha platform scaffold with working document-folder ingestion, chunking,
+methodology retrieval, BM25 sparse retrieval, hash dense retrieval, RRF fusion,
+query expansion, confidence scoring, citation grounding, Ragamuffin app wiring,
+and local evaluation fixtures. The current dense backend is deterministic and
+dependency-free for tests; real model-backed embedding adapters are the next
+step before claiming SOTA performance.
