@@ -2,10 +2,14 @@
 
 from cam_rag.verification.confidence import ConfidenceReport, score_retrieval_confidence
 from cam_rag.verification.grounding import GroundingReport, verify_citations_grounded
+from cam_rag.verification.sensitive import SensitiveMatch, redact_text, scan_text
 
 __all__ = [
     "ConfidenceReport",
     "GroundingReport",
+    "SensitiveMatch",
+    "redact_text",
+    "scan_text",
     "score_retrieval_confidence",
     "verify_citations_grounded",
 ]

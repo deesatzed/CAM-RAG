@@ -93,8 +93,14 @@ def mine_repo(
 
 
 def _iter_candidate_files(root: Path):
+    root_resolved = root.resolve()
     for path in sorted(root.rglob("*")):
         if not path.is_file():
+            continue
+        # Reject symlinks and paths that escape the repository root
+        if path.is_symlink() or not str(path.resolve()).startswith(
+            str(root_resolved) + "/"
+        ):
             continue
         if any(part in SKIP_DIRS for part in path.parts):
             continue

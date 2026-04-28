@@ -1,0 +1,36 @@
+pip-audit report for cam-rag-platform
+Generated: 2026-04-27
+
+Environment: py313 conda environment (shared, 739 packages)
+Scan scope: Full environment (not isolated to project venv)
+
+SUMMARY
+-------
+Total packages audited: 739
+Packages with known vulnerabilities: 34
+Total known vulnerabilities: 87
+
+PROJECT-RELEVANT FINDINGS
+-------------------------
+Only one direct dependency of cam-rag-platform has a known vulnerability:
+
+  pytest 8.3.4
+    CVE-2025-71176 -- fix available in 9.0.3
+    Status: dev-only dependency (not shipped in production)
+    Risk: Low -- pytest is only used in development/testing
+
+All other 86 vulnerabilities (in 33 packages) belong to packages installed
+in the shared conda environment that are NOT dependencies of cam-rag-platform.
+Examples include django, gradio, litellm, pypdf, tornado, etc.
+
+RECOMMENDATION
+--------------
+1. Consider upgrading pytest to >=9.0.3 in pyproject.toml [project.optional-dependencies.dev]
+2. For production isolation, use a dedicated virtual environment with only
+   cam-rag-platform's declared dependencies
+3. Re-run pip-audit periodically to catch new disclosures
+
+FILES
+-----
+dependencies.json   -- Full pip list --format=json SBOM snapshot
+audit-results.json  -- Full pip-audit --format json output

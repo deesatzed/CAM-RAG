@@ -4,8 +4,8 @@ from cam_rag.rag.models import Chunk, Citation, CorpusDocument, Evidence, RAGAns
 from cam_rag.rag.spec import RAGAppSpec, RAGPolicy
 
 __all__ = [
-    "Citation",
     "Chunk",
+    "Citation",
     "CorpusDocument",
     "Evidence",
     "RAGAnswer",

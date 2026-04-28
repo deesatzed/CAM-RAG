@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from cam_rag.rag.models import Chunk
 
@@ -28,6 +28,7 @@ class RAGPolicy:
 
     enforce_phi: bool = False
     enforce_pii: bool = False
+    use_llm_redaction: bool = False
     require_citations: bool = True
     min_confidence: float = 0.4
     allowed_residency: str | None = None
@@ -45,10 +46,23 @@ class RAGAppSpec:
     retrieval_top_k: int = 10
     dense_weight: float = 0.6
     sparse_weight: float = 0.4
+    chunk_overlap: int = 0
+    chunk_strategy: str = "paragraph"  # "paragraph" | "semantic" | "sentence"
     query_expansion_enabled: bool = False
     expansion_terms: int = 5
     reranker_model: str | None = None
     domain_tags: tuple[str, ...] = ()
+    use_pipeline: bool = False
+    embedding_backend: Any = None
+    embedding_backends: list[Any] = field(default_factory=list)
+    ensemble_weights: dict[str, float] = field(default_factory=dict)
+    use_rl: bool = False
+    rl_persistence_path: str | None = None
+    use_governance: bool = False
+    generation_backend: Any = None
+    reranker_backend: Any = None
+    multi_hop_enabled: bool = False
+    multi_hop_max_hops: int = 2
 
     def tokenize(self, text: str) -> list[str]:
         return self.tokenizer(text)

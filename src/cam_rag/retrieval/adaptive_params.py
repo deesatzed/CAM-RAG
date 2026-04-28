@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Protocol
 
 
@@ -14,8 +15,8 @@ class CorpusProfile(Protocol):
     likely_question_types: list[str]
 
 
-_TYPE_DEFAULTS = {
-    "specification": {
+_TYPE_DEFAULTS = MappingProxyType({
+    "specification": MappingProxyType({
         "dense_k": 10,
         "sparse_k": 20,
         "dense_weight": 0.7,
@@ -26,8 +27,8 @@ _TYPE_DEFAULTS = {
         "novelty_threshold": 0.90,
         "max_chunks_per_doc": 3,
         "use_rrf_in_fractal": False,
-    },
-    "summary": {
+    }),
+    "summary": MappingProxyType({
         "dense_k": 20,
         "sparse_k": 30,
         "dense_weight": 0.6,
@@ -38,8 +39,8 @@ _TYPE_DEFAULTS = {
         "novelty_threshold": 0.75,
         "max_chunks_per_doc": 5,
         "use_rrf_in_fractal": False,
-    },
-    "logic": {
+    }),
+    "logic": MappingProxyType({
         "dense_k": 15,
         "sparse_k": 25,
         "dense_weight": 0.65,
@@ -50,8 +51,8 @@ _TYPE_DEFAULTS = {
         "novelty_threshold": 0.80,
         "max_chunks_per_doc": 4,
         "use_rrf_in_fractal": False,
-    },
-    "synthesis": {
+    }),
+    "synthesis": MappingProxyType({
         "dense_k": 30,
         "sparse_k": 50,
         "dense_weight": 0.5,
@@ -62,8 +63,8 @@ _TYPE_DEFAULTS = {
         "novelty_threshold": 0.65,
         "max_chunks_per_doc": 3,
         "use_rrf_in_fractal": True,
-    },
-}
+    }),
+})
 
 
 @dataclass(slots=True)

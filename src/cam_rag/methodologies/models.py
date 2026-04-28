@@ -25,7 +25,7 @@ class Methodology:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Methodology":
+    def from_dict(cls, data: dict[str, Any]) -> Methodology:
         return cls(**data)
 
 
@@ -44,7 +44,7 @@ class Family:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Family":
+    def from_dict(cls, data: dict[str, Any]) -> Family:
         return cls(**data)
 
 
@@ -59,7 +59,7 @@ class Membership:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Membership":
+    def from_dict(cls, data: dict[str, Any]) -> Membership:
         return cls(**data)
 
 

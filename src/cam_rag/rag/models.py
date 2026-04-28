@@ -3,9 +3,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 ChunkLevel = Literal["sentence", "paragraph", "section", "document", "methodology"]
+
+
+class EvidenceSignals(TypedDict, total=False):
+    """Known keys produced by hybrid RRF retrieval.
+
+    All keys are optional (total=False) because Evidence can be constructed
+    with partial signals by downstream consumers or tests.
+    """
+
+    matched_terms: list[str]
+    source_ranks: dict[str, int]
+    source_scores: dict[str, float]
+    rrf_score: float
+
+
+class RetrievalStats(TypedDict, total=False):
+    """Known keys populated in RAGTrace.retrieval_stats by the query path.
+
+    All keys are optional (total=False) because the trace may be partially
+    populated depending on the code path (e.g. query_expansion may not run).
+    """
+
+    documents: int
+    chunks: int
+    evidence: int
+    expanded_query: str
 
 
 @dataclass(slots=True)
@@ -17,6 +43,8 @@ class CorpusDocument:
     source: str
     title: str = ""
     format: str = "text"
+    # metadata is genuinely dynamic: user-supplied key/value pairs that vary
+    # per document format and ingestion pipeline.  dict[str, Any] is correct.
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -34,6 +62,8 @@ class Chunk:
     position: int = 0
     page_number: int | None = None
     section_heading: str = ""
+    # metadata is genuinely dynamic: user-supplied key/value pairs that vary
+    # per chunk and ingestion pipeline.  dict[str, Any] is correct.
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -45,7 +75,7 @@ class Evidence:
     score: float
     retriever: str
     rank: int = 0
-    signals: dict[str, Any] = field(default_factory=dict)
+    signals: EvidenceSignals = field(default_factory=dict)  # type: ignore[assignment]
     graph_reasons: list[str] = field(default_factory=list)
 
 
@@ -68,7 +98,11 @@ class RAGTrace:
 
     query_type: str = "unknown"
     stages: list[str] = field(default_factory=list)
-    retrieval_stats: dict[str, Any] = field(default_factory=dict)
+    retrieval_stats: RetrievalStats = field(default_factory=dict)  # type: ignore[assignment]
+    # confidence_details merges ConfidenceReport.to_dict() with a nested
+    # "grounding" key from GroundingReport.to_dict().  The shape is a
+    # heterogeneous mix of floats, ints, and a nested dict produced by
+    # dataclasses.asdict(), so dict[str, Any] is the most accurate type here.
     confidence_details: dict[str, Any] = field(default_factory=dict)
 
     def add(self, stage: str) -> None:

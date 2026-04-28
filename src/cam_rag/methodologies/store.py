@@ -9,6 +9,33 @@ from pathlib import Path
 from cam_rag.methodologies.models import Family, Membership, Methodology
 
 
+def _validate_store_path(store_path: Path) -> None:
+    """Validate a store path for safety.
+
+    Rejects symlinks, paths containing ``..`` segments, and resolved paths
+    that escape the expected parent directory.
+    """
+    if store_path.is_symlink():
+        raise ValueError("symlink store paths are not allowed")
+
+    # Reject any path containing ".." segments
+    for part in store_path.parts:
+        if part == "..":
+            raise ValueError("store paths containing '..' segments are not allowed")
+
+    # Ensure the resolved path stays within the parent directory
+    resolved = store_path.resolve()
+    parent_resolved = store_path.parent.resolve()
+    if (
+        not str(resolved).startswith(str(parent_resolved) + "/")
+        and resolved != parent_resolved
+        and resolved.parent != parent_resolved
+    ):
+        raise ValueError(
+            f"store path resolves outside its parent directory: {resolved}"
+        )
+
+
 @dataclass(slots=True)
 class JsonStore:
     methodologies: dict[str, Methodology] = field(default_factory=dict)
@@ -16,8 +43,9 @@ class JsonStore:
     memberships: list[Membership] = field(default_factory=list)
 
     @classmethod
-    def load(cls, path: str | Path) -> "JsonStore":
+    def load(cls, path: str | Path) -> JsonStore:
         store_path = Path(path)
+        _validate_store_path(store_path)
         if not store_path.exists():
             return cls()
         data = json.loads(store_path.read_text(encoding="utf-8"))
@@ -38,6 +66,7 @@ class JsonStore:
 
     def save(self, path: str | Path) -> None:
         store_path = Path(path)
+        _validate_store_path(store_path)
         store_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "methodologies": [item.to_dict() for item in self.methodologies.values()],

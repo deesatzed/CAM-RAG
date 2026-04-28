@@ -3,8 +3,8 @@
 from cam_rag.rag import Chunk, Citation, CorpusDocument, Evidence, RAGAnswer, RAGAppSpec
 
 __all__ = [
-    "Citation",
     "Chunk",
+    "Citation",
     "CorpusDocument",
     "Evidence",
     "RAGAnswer",

@@ -178,10 +178,7 @@ def _mapping_text(item: Mapping[str, Any]) -> str:
 
 
 def _chunk_text(chunk: Any) -> str:
-    if isinstance(chunk, Mapping):
-        text = chunk.get("text")
-    else:
-        text = getattr(chunk, "text", None)
+    text = chunk.get("text") if isinstance(chunk, Mapping) else getattr(chunk, "text", None)
     return "" if text is None else str(text)
 
 

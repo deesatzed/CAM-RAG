@@ -7,6 +7,10 @@ from cam_rag.retrieval.dense import (
     HashEmbeddingBackend,
     cosine_similarity,
 )
+from cam_rag.retrieval.embedding_backends import (
+    OllamaEmbeddingBackend,
+    OpenRouterEmbeddingBackend,
+)
 from cam_rag.retrieval.fusion import rrf_fuse
 from cam_rag.retrieval.models import FusedResult, RetrievalDocument, RetrievalResult
 from cam_rag.retrieval.query_expansion import (
@@ -19,19 +23,21 @@ from cam_rag.retrieval.query_expansion import (
 from cam_rag.retrieval.sparse import SparseBM25Retriever, bm25_search, tokenize
 
 __all__ = [
-    "AdaptiveParams",
     "DEFAULT_EXPANSION_STOPWORDS",
+    "AdaptiveParams",
     "DenseVectorRetriever",
     "EmbeddingBackend",
     "FusedResult",
     "HashEmbeddingBackend",
+    "OllamaEmbeddingBackend",
+    "OpenRouterEmbeddingBackend",
     "RetrievalDocument",
     "RetrievalResult",
     "SparseBM25Retriever",
     "bm25_search",
+    "build_expanded_query",
     "compute_adaptive_params",
     "cosine_similarity",
-    "build_expanded_query",
     "extract_expansion_terms",
     "filter_expansion_terms",
     "rrf_fuse",
