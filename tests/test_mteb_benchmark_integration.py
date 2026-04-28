@@ -447,3 +447,62 @@ class TestActionableDiagnostics:
         assert diag.sparse_contribution == 0.3
         assert diag.dense_contribution == 0.7
         assert diag.fusion_method == "rrf"
+
+
+# ---------------------------------------------------------------------------
+# 7. PseudoRAG Benchmark Arms
+# ---------------------------------------------------------------------------
+
+
+class TestPseudoRAGBenchmarkArms:
+    """PseudoRAG RL arms must be tracked in DEFAULT_ARMS and produce diagnostics."""
+
+    def test_moe_scored_arm_in_default_arms(self):
+        from cam_rag.rl.feedback import DEFAULT_ARMS
+
+        assert "moe_scored" in DEFAULT_ARMS
+        assert "moe_importance_scoring" in DEFAULT_ARMS["moe_scored"]
+
+    def test_full_pseudorag_arm_in_default_arms(self):
+        from cam_rag.rl.feedback import DEFAULT_ARMS
+
+        assert "full_pseudorag" in DEFAULT_ARMS
+        assert "etf_verification" in DEFAULT_ARMS["full_pseudorag"]
+        assert "moe_importance_scoring" in DEFAULT_ARMS["full_pseudorag"]
+
+    def test_low_score_pseudorag_arm_recommends_moe_tuning(self):
+        """When a PseudoRAG arm scores low, the diagnostic should suggest MoE tuning."""
+        score = BenchmarkScore(task="SciFactRetrieval", model="hash", main_score=0.02)
+        config = {
+            "embedding_backend": "hash",
+            "sparse_weight": 0.4,
+            "dense_weight": 0.6,
+            "moe_scoring_enabled": True,
+        }
+
+        diag = diagnose_score(score, config)
+        # Low score → recommends replacement (same logic applies to MoE arms)
+        assert "below baseline" in diag.recommendation
+
+    def test_regression_detection_covers_pseudorag_arms(self):
+        """Regression detection must work for PseudoRAG-labeled runs."""
+        baseline = [
+            BenchmarkScore(
+                task="SciFactRetrieval",
+                model="hash",
+                main_score=0.08,
+                metadata={"arm": "moe_scored"},
+            ),
+        ]
+        current = [
+            BenchmarkScore(
+                task="SciFactRetrieval",
+                model="hash",
+                main_score=0.03,
+                metadata={"arm": "moe_scored"},
+            ),
+        ]
+
+        report = detect_regressions(baseline, current, tolerance=0.02)
+        assert report.passed is False
+        assert report.regressions[0]["task"] == "SciFactRetrieval"

@@ -86,6 +86,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=256,
         help="Embedding dimension for --model hash.",
     )
+    parser.add_argument(
+        "--spec-overrides",
+        default=None,
+        help=(
+            "JSON string of RAGAppSpec flag overrides to label this benchmark run "
+            '(e.g. \'{"moe_scoring_enabled": true}\').'
+        ),
+    )
     return parser
 
 
@@ -94,6 +102,8 @@ def main(argv: list[str] | None = None) -> int:
     mteb = _load_mteb()
     model = _load_model(args, mteb)
     tasks = _load_tasks(args, mteb)
+
+    spec_overrides = parse_spec_overrides(args.spec_overrides)
 
     evaluate_kwargs: dict[str, Any] = {
         "tasks": tasks,
@@ -104,8 +114,25 @@ def main(argv: list[str] | None = None) -> int:
         evaluate_kwargs["prediction_folder"] = args.prediction_folder
 
     results = mteb.evaluate(model, **evaluate_kwargs)
-    _write_summary(args.output_folder, args.model, tasks, results)
+    _write_summary(args.output_folder, args.model, tasks, results, spec_overrides=spec_overrides)
     return 0
+
+
+def parse_spec_overrides(raw: str | None) -> dict[str, Any]:
+    """Parse a JSON string of RAGAppSpec overrides.
+
+    Returns an empty dict when *raw* is None or empty.
+    Raises ``SystemExit`` on invalid JSON.
+    """
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise SystemExit("--spec-overrides must be a JSON object (dict).")
+        return parsed
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"--spec-overrides is not valid JSON: {exc}") from exc
 
 
 def _load_mteb() -> Any:
@@ -180,18 +207,27 @@ def _input_to_text(item: dict[str, Any]) -> str:
     return " ".join(str(value) for value in item.values() if value is not None)
 
 
-def _write_summary(output_folder: str, model_name: str, tasks: Any, results: Any) -> None:
+def _write_summary(
+    output_folder: str,
+    model_name: str,
+    tasks: Any,
+    results: Any,
+    *,
+    spec_overrides: dict[str, Any] | None = None,
+) -> None:
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
     task_names = [
         getattr(getattr(task, "metadata", None), "name", str(task))
         for task in list(tasks)
     ]
-    summary = {
+    summary: dict[str, Any] = {
         "model": model_name,
         "tasks": task_names,
         "result_count": len(results) if hasattr(results, "__len__") else None,
     }
+    if spec_overrides:
+        summary["spec_overrides"] = spec_overrides
     (output_path / "cam_rag_mteb_summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
