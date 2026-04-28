@@ -63,6 +63,12 @@ class RAGAppSpec:
     reranker_backend: Any = None
     multi_hop_enabled: bool = False
     multi_hop_max_hops: int = 2
+    moe_scoring_enabled: bool = False
+    accuracy_contracts_enabled: bool = False
+    selective_filter_enabled: bool = False
+    selective_filter_threshold: float = 0.55
+    etf_verification_enabled: bool = False
+    complexity_routing_enabled: bool = False
 
     def tokenize(self, text: str) -> list[str]:
         return self.tokenizer(text)

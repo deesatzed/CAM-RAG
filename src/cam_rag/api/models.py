@@ -42,6 +42,12 @@ class ConfigOverrides(BaseModel):
     use_pipeline: bool | None = None
     use_rl: bool | None = None
     use_governance: bool | None = None
+    moe_scoring_enabled: bool | None = None
+    accuracy_contracts_enabled: bool | None = None
+    selective_filter_enabled: bool | None = None
+    selective_filter_threshold: float | None = None
+    etf_verification_enabled: bool | None = None
+    complexity_routing_enabled: bool | None = None
     enforce_phi: bool | None = None
     enforce_pii: bool | None = None
     require_citations: bool | None = None

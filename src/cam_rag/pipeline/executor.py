@@ -22,7 +22,11 @@ from cam_rag.retrieval.dense import DenseVectorRetriever
 from cam_rag.retrieval.fusion import rrf_fuse
 from cam_rag.retrieval.query_expansion import build_expanded_query, extract_expansion_terms
 from cam_rag.retrieval.sparse import SparseBM25Retriever
+from cam_rag.pipeline.routing import ComplexityRoutingStep
+from cam_rag.scoring.contracts import apply_selective_filter, classify_contracts
+from cam_rag.scoring.moe import score_chunks_moe
 from cam_rag.verification.confidence import score_retrieval_confidence
+from cam_rag.verification.etf import compute_etf
 from cam_rag.verification.grounding import verify_citations_grounded
 
 logger = logging.getLogger(__name__)
@@ -294,12 +298,18 @@ class MultiHopRetrievalStep:
         original_query_terms = set(ctx.spec.tokenize(ctx.query_text))
 
         for hop_number in range(2, max_hops + 1):
+            # Filter out "fast" items for term extraction (they are low-value)
+            extraction_evidence = [
+                item for item in ctx.evidence
+                if item.signals.get("routing") != "fast"
+            ] or ctx.evidence  # fallback to all if everything is fast
+
             # Extract new terms from current evidence that are not in the original query
             new_terms = extract_expansion_terms(
-                ctx.evidence,
+                extraction_evidence,
                 ctx.query_text,
                 tokenizer=ctx.spec.tokenize,
-                top_k=min(5, len(ctx.evidence)),
+                top_k=min(5, len(extraction_evidence)),
                 max_terms=ctx.spec.expansion_terms,
             )
             if not new_terms:
@@ -424,19 +434,33 @@ class CrossEncoderRerankStep:
         if not ctx.evidence:
             return
 
-        passages = [item.chunk.text for item in ctx.evidence]
-        scores = backend.rerank(ctx.query_text, passages)
+        # Separate items to rerank from "fast" items that skip reranking
+        to_rerank = []
+        fast_items = []
+        for item in ctx.evidence:
+            if item.signals.get("routing") == "fast":
+                fast_items.append(item)
+            else:
+                to_rerank.append(item)
 
-        # Apply reranker scores to evidence
-        for item, rerank_score in zip(ctx.evidence, scores):
-            item.signals["rrf_score_pre_rerank"] = item.score
-            item.signals["reranker_score"] = rerank_score
-            item.score = rerank_score
+        if to_rerank:
+            passages = [item.chunk.text for item in to_rerank]
+            scores = backend.rerank(ctx.query_text, passages)
 
-        # Re-sort by reranker score (descending) and update ranks
-        ctx.evidence.sort(key=lambda e: e.score, reverse=True)
-        for i, item in enumerate(ctx.evidence):
+            for item, rerank_score in zip(to_rerank, scores):
+                item.signals["rrf_score_pre_rerank"] = item.score
+                item.signals["reranker_score"] = rerank_score
+                item.score = rerank_score
+
+        # Merge back: reranked items + fast items (fast keep original scores)
+        all_items = to_rerank + fast_items
+
+        # Re-sort by score (descending) and update ranks
+        all_items.sort(key=lambda e: e.score, reverse=True)
+        for i, item in enumerate(all_items):
             item.rank = i
+
+        ctx.evidence = all_items
 
 
 class GenerationStep:
@@ -461,6 +485,7 @@ class GenerationStep:
 
         system_prompt, user_prompt = build_rag_prompt(
             ctx.query_text, ctx.evidence,
+            contract_aware=ctx.spec.accuracy_contracts_enabled,
         )
         generated = backend.generate(system_prompt, user_prompt)
         if generated:
@@ -470,6 +495,83 @@ class GenerationStep:
                 "Generation backend returned empty; falling back to "
                 "retrieval-only answer"
             )
+
+
+class MoEImportanceScoringStep:
+    """Score chunks using the 7-expert MoE panel.
+
+    Enriches ``chunk.metadata`` with importance scores.
+    No-op when ``ctx.spec.moe_scoring_enabled`` is False.
+    """
+
+    name = "moe_importance_scoring"
+
+    def execute(self, ctx: PipelineContext) -> None:
+        if not ctx.spec.moe_scoring_enabled:
+            return
+        if not ctx.chunks:
+            return
+        score_chunks_moe(ctx.chunks)
+
+
+class AccuracyContractStep:
+    """Classify chunks into hard/medium/soft accuracy contract tiers.
+
+    Requires MoE scoring to have run first (reads ``moe_votes`` from
+    chunk metadata).  No-op when ``ctx.spec.accuracy_contracts_enabled``
+    is False.
+    """
+
+    name = "accuracy_contracts"
+
+    def execute(self, ctx: PipelineContext) -> None:
+        if not ctx.spec.accuracy_contracts_enabled:
+            return
+        if not ctx.chunks:
+            return
+        classify_contracts(ctx.chunks)
+
+
+class SelectiveFilterStep:
+    """Adjust evidence scores by MoE store-score worthiness.
+
+    Boosts high-value evidence and penalises boilerplate.
+    No-op when ``ctx.spec.selective_filter_enabled`` is False
+    or no evidence is available.
+    """
+
+    name = "selective_filter"
+
+    def execute(self, ctx: PipelineContext) -> None:
+        if not ctx.spec.selective_filter_enabled:
+            return
+        if not ctx.evidence:
+            return
+        apply_selective_filter(
+            ctx.evidence,
+            threshold=ctx.spec.selective_filter_threshold,
+        )
+
+
+class ETFVerificationStep:
+    """Check answer vs evidence grounding using Epistemic Tension Field.
+
+    Evaluates context sovereignty (token overlap) and model prior skeptic
+    (generic phrase detection).  No-op when
+    ``ctx.spec.etf_verification_enabled`` is False or no generated answer
+    is available.
+    """
+
+    name = "etf_verification"
+
+    def execute(self, ctx: PipelineContext) -> None:
+        if not ctx.spec.etf_verification_enabled:
+            return
+        if not ctx.generated_answer:
+            return
+        report = compute_etf(ctx.generated_answer, ctx.evidence)
+        ctx.extras["etf_report"] = report.to_dict()
+        ctx.confidence_details["etf"] = report.to_dict()
 
 
 # ---------------------------------------------------------------------------
@@ -484,12 +586,17 @@ def _register_builtins() -> None:
         SparseBM25Step,
         DenseVectorStep,
         RRFFusionStep,
+        MoEImportanceScoringStep,
+        AccuracyContractStep,
+        SelectiveFilterStep,
+        ComplexityRoutingStep,
         QueryExpansionStep,
         CrossEncoderRerankStep,
         MultiHopRetrievalStep,
         ConfidenceScoringStep,
         CitationGroundingStep,
         GenerationStep,
+        ETFVerificationStep,
     ):
         instance = step_cls()
         _BUILTIN_STEPS[instance.name] = instance

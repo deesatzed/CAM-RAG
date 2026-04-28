@@ -481,6 +481,26 @@ def _build_default_registry() -> TechniqueRegistry:
             requires=("sparse_bm25", "dense_vector"),
         ),
         TechniqueDescriptor(
+            name="moe_importance_scoring",
+            category="scoring",
+            requires=("rrf_fusion",),
+        ),
+        TechniqueDescriptor(
+            name="accuracy_contracts",
+            category="scoring",
+            requires=("moe_importance_scoring",),
+        ),
+        TechniqueDescriptor(
+            name="selective_filter",
+            category="scoring",
+            requires=("rrf_fusion", "moe_importance_scoring"),
+        ),
+        TechniqueDescriptor(
+            name="complexity_routing",
+            category="routing",
+            requires=("rrf_fusion",),
+        ),
+        TechniqueDescriptor(
             name="query_expansion",
             category="expansion",
             requires=("rrf_fusion",),
@@ -510,6 +530,11 @@ def _build_default_registry() -> TechniqueRegistry:
             name="generation",
             category="generation",
             requires=("citation_grounding",),
+        ),
+        TechniqueDescriptor(
+            name="etf_verification",
+            category="verification",
+            requires=("generation",),
         ),
     ]
     for t in techniques:
@@ -904,7 +929,9 @@ def _generate_answer(
     if not evidence:
         return f"No cited evidence found for: {query[:200]}"
 
-    system_prompt, user_prompt = build_rag_prompt(query, evidence)
+    system_prompt, user_prompt = build_rag_prompt(
+        query, evidence, contract_aware=spec.accuracy_contracts_enabled,
+    )
     generated = backend.generate(system_prompt, user_prompt)
     if generated:
         _slog.info("llm generation complete", chars=len(generated))

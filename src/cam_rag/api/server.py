@@ -62,6 +62,12 @@ def _apply_overrides(spec: RAGAppSpec, overrides: ConfigOverrides | None) -> RAG
         "use_pipeline",
         "use_rl",
         "use_governance",
+        "moe_scoring_enabled",
+        "accuracy_contracts_enabled",
+        "selective_filter_enabled",
+        "selective_filter_threshold",
+        "etf_verification_enabled",
+        "complexity_routing_enabled",
     }
     policy_fields = {
         "enforce_phi",
@@ -115,6 +121,12 @@ async def config() -> ConfigResponse:
         "use_pipeline": default_spec.use_pipeline,
         "use_rl": default_spec.use_rl,
         "use_governance": default_spec.use_governance,
+        "moe_scoring_enabled": default_spec.moe_scoring_enabled,
+        "accuracy_contracts_enabled": default_spec.accuracy_contracts_enabled,
+        "selective_filter_enabled": default_spec.selective_filter_enabled,
+        "selective_filter_threshold": default_spec.selective_filter_threshold,
+        "etf_verification_enabled": default_spec.etf_verification_enabled,
+        "complexity_routing_enabled": default_spec.complexity_routing_enabled,
     }
     policy_defaults = {
         "enforce_phi": default_policy.enforce_phi,
