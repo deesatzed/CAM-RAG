@@ -1,0 +1,21 @@
+{
+  "model": "openrouter:qwen/qwen3-embedding-8b",
+  "embedding_dim": 4096,
+  "tasks": {
+    "SciFact": {
+      "ndcg_at_10": 0.76769
+    },
+    "NFCorpus": {
+      "ndcg_at_10": 0.38417
+    },
+    "NanoSciFactRetrieval": {
+      "ndcg_at_10": 0.78894
+    },
+    "NanoNFCorpusRetrieval": {
+      "ndcg_at_10": 0.37131
+    }
+  },
+  "run_date": "2026-04-29",
+  "mteb_version": "2.12.30",
+  "notes": "First live OpenRouter benchmark baseline via cam-rag-platform MTEB harness"
+}

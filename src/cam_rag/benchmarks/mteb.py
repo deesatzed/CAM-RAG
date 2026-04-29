@@ -5,29 +5,79 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import math
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from cam_rag.retrieval import EmbeddingBackend, HashEmbeddingBackend
+from cam_rag.retrieval import (
+    EmbeddingBackend,
+    HashEmbeddingBackend,
+    OllamaEmbeddingBackend,
+    OpenRouterEmbeddingBackend,
+)
 
 
 class CamRAGMTEBModel:
-    """MTEB-compatible wrapper around a `cam_rag` embedding backend."""
+    """MTEB-compatible wrapper around a `cam_rag` embedding backend.
+
+    Implements the MTEB ``EncoderProtocol`` (encode + similarity +
+    similarity_pairwise + mteb_model_meta) so the model passes the
+    ``isinstance(model, EncoderProtocol)`` runtime check in mteb >= 2.12.
+    """
 
     def __init__(self, backend: EmbeddingBackend, *, name: str = "cam-rag-hash") -> None:
         self.backend = backend
         self.mteb_model_meta = {"name": name, "revision": None, "release_date": None}
 
-    def encode(self, inputs: Any, **_: Any) -> list[list[float]]:
+    def encode(self, inputs: Any, **_: Any) -> Any:
         """Encode MTEB inputs using the wrapped backend.
 
         MTEB has supported multiple encode signatures over time. This wrapper
         accepts a plain list of strings as well as iterable batches from the
         current DataLoader-based protocol.
-        """
 
-        return [self.backend.embed(text) for text in _coerce_texts(inputs)]
+        Returns a numpy array when numpy is available (required by MTEB
+        retrieval evaluator), otherwise a nested list.
+        """
+        texts = _coerce_texts(inputs)
+        if hasattr(self.backend, "embed_batch"):
+            vectors = self.backend.embed_batch(texts)
+        else:
+            vectors = [self.backend.embed(text) for text in texts]
+        return _to_array(vectors)
+
+    def similarity(self, embeddings1: Any, embeddings2: Any) -> Any:
+        """Cosine similarity matrix between two embedding sets."""
+        np = _import_numpy()
+        e1 = np.asarray(embeddings1, dtype=np.float32)
+        e2 = np.asarray(embeddings2, dtype=np.float32)
+        n1 = e1 / np.clip(np.linalg.norm(e1, axis=1, keepdims=True), 1e-12, None)
+        n2 = e2 / np.clip(np.linalg.norm(e2, axis=1, keepdims=True), 1e-12, None)
+        return n1 @ n2.T
+
+    def similarity_pairwise(self, embeddings1: Any, embeddings2: Any) -> Any:
+        """Pairwise cosine similarity between corresponding embeddings."""
+        np = _import_numpy()
+        e1 = np.asarray(embeddings1, dtype=np.float32)
+        e2 = np.asarray(embeddings2, dtype=np.float32)
+        n1 = e1 / np.clip(np.linalg.norm(e1, axis=1, keepdims=True), 1e-12, None)
+        n2 = e2 / np.clip(np.linalg.norm(e2, axis=1, keepdims=True), 1e-12, None)
+        return np.sum(n1 * n2, axis=1)
+
+
+def _import_numpy() -> Any:
+    """Import numpy lazily (it's a transitive dep of mteb)."""
+    return importlib.import_module("numpy")
+
+
+def _to_array(vectors: list[list[float]]) -> Any:
+    """Convert embedding list to numpy array when available."""
+    try:
+        np = _import_numpy()
+        return np.asarray(vectors, dtype=np.float32)
+    except (ImportError, ModuleNotFoundError):
+        return vectors
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -87,6 +137,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Embedding dimension for --model hash.",
     )
     parser.add_argument(
+        "--embedding-dim",
+        type=int,
+        default=None,
+        help=(
+            "Explicit embedding dimension for backends that need it. "
+            "Defaults: OpenRouter pplx-embed-v1-4b=2560, Ollama bge-m3=1024."
+        ),
+    )
+    parser.add_argument(
         "--spec-overrides",
         default=None,
         help=(
@@ -107,14 +166,20 @@ def main(argv: list[str] | None = None) -> int:
 
     evaluate_kwargs: dict[str, Any] = {
         "tasks": tasks,
-        "output_folder": args.output_folder,
         "encode_kwargs": {"batch_size": args.batch_size},
+        "overwrite_strategy": "always",
     }
     if args.prediction_folder:
         evaluate_kwargs["prediction_folder"] = args.prediction_folder
 
-    results = mteb.evaluate(model, **evaluate_kwargs)
-    _write_summary(args.output_folder, args.model, tasks, results, spec_overrides=spec_overrides)
+    model_result = mteb.evaluate(model, **evaluate_kwargs)
+    _write_summary(
+        args.output_folder,
+        args.model,
+        tasks,
+        model_result,
+        spec_overrides=spec_overrides,
+    )
     return 0
 
 
@@ -151,6 +216,19 @@ def _load_model(args: argparse.Namespace, mteb: Any) -> Any:
             HashEmbeddingBackend(dim=args.hash_dim),
             name=f"cam-rag-hash-{args.hash_dim}",
         )
+
+    if args.model.startswith("openrouter:"):
+        model_id = args.model[len("openrouter:"):]
+        dim = args.embedding_dim or 2560
+        backend = OpenRouterEmbeddingBackend(model=model_id, dim=dim)
+        return CamRAGMTEBModel(backend, name=f"openrouter-{model_id}")
+
+    if args.model.startswith("ollama:"):
+        model_id = args.model[len("ollama:"):]
+        dim = args.embedding_dim or 1024
+        backend = OllamaEmbeddingBackend(model=model_id, dim=dim)
+        return CamRAGMTEBModel(backend, name=f"ollama-{model_id}")
+
     return mteb.get_model(args.model)
 
 
@@ -173,6 +251,10 @@ def _coerce_texts(inputs: Any) -> list[str]:
     if isinstance(inputs, str):
         return [inputs]
     if isinstance(inputs, dict):
+        # MTEB DataLoader yields BatchedInput dicts where 'text' is a list
+        batch_texts = _extract_batch_texts(inputs)
+        if batch_texts is not None:
+            return batch_texts
         return [_input_to_text(inputs)]
 
     texts: list[str] = []
@@ -180,7 +262,11 @@ def _coerce_texts(inputs: Any) -> list[str]:
         if isinstance(item, str):
             texts.append(item)
         elif isinstance(item, dict):
-            texts.append(_input_to_text(item))
+            batch_texts = _extract_batch_texts(item)
+            if batch_texts is not None:
+                texts.extend(batch_texts)
+            else:
+                texts.append(_input_to_text(item))
         elif _looks_like_batch(item):
             texts.extend(_coerce_texts(item))
         else:
@@ -197,6 +283,21 @@ def _safe_iter(inputs: Any) -> Iterable[Any]:
 
 def _looks_like_batch(item: Any) -> bool:
     return not isinstance(item, (str, bytes, dict)) and hasattr(item, "__iter__")
+
+
+def _extract_batch_texts(item: dict[str, Any]) -> list[str] | None:
+    """Extract a list of strings from a batched MTEB dict.
+
+    MTEB's DataLoader yields ``BatchedInput`` dicts where the text key
+    contains a *list* of strings (one per sample in the batch).  When such
+    a structure is detected, return the list; otherwise return ``None`` so
+    the caller can fall back to single-item extraction.
+    """
+    for key in ("text", "sentence", "query", "document", "passage"):
+        value = item.get(key)
+        if isinstance(value, (list, tuple)) and value and isinstance(value[0], str):
+            return list(value)
+    return None
 
 
 def _input_to_text(item: dict[str, Any]) -> str:
@@ -221,11 +322,34 @@ def _write_summary(
         getattr(getattr(task, "metadata", None), "name", str(task))
         for task in list(tasks)
     ]
+
+    # Extract per-task scores from ModelResult.task_results
+    scores: dict[str, Any] = {}
+    task_results = getattr(results, "task_results", None)
+    if task_results:
+        for tr in task_results:
+            name = getattr(tr, "task_name", None) or str(tr)
+            main_score = getattr(tr, "main_score", None)
+            if main_score is not None:
+                scores[name] = main_score
+            elif hasattr(tr, "scores"):
+                # Fallback: extract from scores dict
+                for split, split_scores in tr.scores.items():
+                    if split_scores:
+                        for entry in split_scores:
+                            if "main_score" in entry:
+                                scores[f"{name}_{split}"] = entry["main_score"]
+
+    result_count = len(task_results) if task_results else (
+        len(results) if hasattr(results, "__len__") else None
+    )
     summary: dict[str, Any] = {
         "model": model_name,
         "tasks": task_names,
-        "result_count": len(results) if hasattr(results, "__len__") else None,
+        "result_count": result_count,
     }
+    if scores:
+        summary["scores"] = scores
     if spec_overrides:
         summary["spec_overrides"] = spec_overrides
     (output_path / "cam_rag_mteb_summary.json").write_text(

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from cam_rag.benchmarks.mteb import CamRAGMTEBModel, _coerce_texts, main
-from cam_rag.retrieval import HashEmbeddingBackend
+from cam_rag.benchmarks.mteb import CamRAGMTEBModel, _coerce_texts, _load_model, build_arg_parser, main
+from cam_rag.retrieval import HashEmbeddingBackend, OllamaEmbeddingBackend, OpenRouterEmbeddingBackend
 
 
 def test_cam_rag_mteb_model_encodes_plain_strings() -> None:
@@ -13,7 +13,7 @@ def test_cam_rag_mteb_model_encodes_plain_strings() -> None:
 
     assert len(embeddings) == 2
     assert all(len(embedding) == 16 for embedding in embeddings)
-    assert embeddings[0] != embeddings[1]
+    assert not (embeddings[0] == embeddings[1]).all()
 
 
 def test_coerce_texts_handles_loader_style_batches() -> None:
@@ -63,8 +63,8 @@ def test_main_runs_hash_model_with_fake_mteb(monkeypatch, tmp_path) -> None:
     assert exit_code == 0
     assert isinstance(calls["model"], CamRAGMTEBModel)
     assert calls["get_tasks"] == {"tasks": ["SciFactRetrieval"], "languages": None}
-    assert calls["evaluate"]["output_folder"] == str(tmp_path)
     assert calls["evaluate"]["encode_kwargs"] == {"batch_size": 32}
+    assert calls["evaluate"]["overwrite_strategy"] == "always"
     assert (tmp_path / "cam_rag_mteb_summary.json").exists()
 
 
@@ -119,3 +119,105 @@ def test_main_filters_benchmark_tasks_with_fake_mteb(monkeypatch, tmp_path) -> N
     assert calls["get_benchmark"] == "MTEB(eng, v2)"
     assert calls["filter_tasks"] == ["Retrieval"]
     assert calls["evaluate"]["tasks"] == [retrieval_task]
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter / Ollama prefix loading tests
+# ---------------------------------------------------------------------------
+
+
+def test_load_model_openrouter_prefix(monkeypatch) -> None:
+    """openrouter: prefix instantiates OpenRouterEmbeddingBackend."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-for-unit-test")
+    parser = build_arg_parser()
+    args = parser.parse_args([
+        "--model", "openrouter:perplexity/pplx-embed-v1-4b",
+    ])
+    mteb_stub = SimpleNamespace()  # not used for openrouter path
+
+    model = _load_model(args, mteb_stub)
+
+    assert isinstance(model, CamRAGMTEBModel)
+    assert isinstance(model.backend, OpenRouterEmbeddingBackend)
+    assert model.backend.model == "perplexity/pplx-embed-v1-4b"
+    assert model.backend.dim == 2560  # default dim for openrouter
+    assert model.mteb_model_meta["name"] == "openrouter-perplexity/pplx-embed-v1-4b"
+
+
+def test_load_model_ollama_prefix() -> None:
+    """ollama: prefix instantiates OllamaEmbeddingBackend."""
+    parser = build_arg_parser()
+    args = parser.parse_args([
+        "--model", "ollama:bge-m3",
+    ])
+    mteb_stub = SimpleNamespace()
+
+    model = _load_model(args, mteb_stub)
+
+    assert isinstance(model, CamRAGMTEBModel)
+    assert isinstance(model.backend, OllamaEmbeddingBackend)
+    assert model.backend.model == "bge-m3"
+    assert model.backend.dim == 1024  # default dim for ollama
+    assert model.mteb_model_meta["name"] == "ollama-bge-m3"
+
+
+def test_embedding_dim_arg_passed_to_backend(monkeypatch) -> None:
+    """--embedding-dim overrides the default dimension for openrouter backend."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-for-unit-test")
+    parser = build_arg_parser()
+    args = parser.parse_args([
+        "--model", "openrouter:custom/model",
+        "--embedding-dim", "768",
+    ])
+    mteb_stub = SimpleNamespace()
+
+    model = _load_model(args, mteb_stub)
+
+    assert isinstance(model.backend, OpenRouterEmbeddingBackend)
+    assert model.backend.dim == 768
+
+
+def test_embedding_dim_arg_passed_to_ollama_backend() -> None:
+    """--embedding-dim overrides the default dimension for ollama backend."""
+    parser = build_arg_parser()
+    args = parser.parse_args([
+        "--model", "ollama:nomic-embed-text",
+        "--embedding-dim", "512",
+    ])
+    mteb_stub = SimpleNamespace()
+
+    model = _load_model(args, mteb_stub)
+
+    assert isinstance(model.backend, OllamaEmbeddingBackend)
+    assert model.backend.dim == 512
+
+
+def test_encode_uses_batch_when_available() -> None:
+    """CamRAGMTEBModel.encode() calls embed_batch() when the backend has it."""
+    calls: list[str] = []
+
+    class BatchBackend:
+        dim = 4
+
+        def embed(self, text: str) -> list[float]:
+            calls.append(f"embed:{text}")
+            return [1.0] * self.dim
+
+        def embed_batch(self, texts: list[str]) -> list[list[float]]:
+            calls.append(f"batch:{len(texts)}")
+            return [[1.0] * self.dim for _ in texts]
+
+    model = CamRAGMTEBModel(BatchBackend(), name="test-batch")
+    result = model.encode(["alpha", "beta", "gamma"])
+
+    assert len(result) == 3
+    assert calls == ["batch:3"]
+
+
+def test_encode_falls_back_to_embed_without_batch() -> None:
+    """CamRAGMTEBModel.encode() falls back to per-text embed() calls."""
+    model = CamRAGMTEBModel(HashEmbeddingBackend(dim=8))
+    result = model.encode(["alpha", "beta"])
+
+    assert len(result) == 2
+    assert all(len(v) == 8 for v in result)

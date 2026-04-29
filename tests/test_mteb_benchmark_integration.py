@@ -295,17 +295,17 @@ class TestCamRAGMTEBModelEncoding:
         model = CamRAGMTEBModel(HashEmbeddingBackend(dim=32))
         first = model.encode(["test query"])
         second = model.encode(["test query"])
-        assert first == second
+        assert (first == second).all()
 
     def test_encode_different_texts_produce_different_vectors(self):
         model = CamRAGMTEBModel(HashEmbeddingBackend(dim=64))
         results = model.encode(["alpha", "beta"])
-        assert results[0] != results[1]
+        assert not (results[0] == results[1]).all()
 
     def test_encode_handles_empty_list(self):
         model = CamRAGMTEBModel(HashEmbeddingBackend(dim=16))
         results = model.encode([])
-        assert results == []
+        assert len(results) == 0
 
     def test_encode_handles_dict_inputs(self):
         model = CamRAGMTEBModel(HashEmbeddingBackend(dim=16))
