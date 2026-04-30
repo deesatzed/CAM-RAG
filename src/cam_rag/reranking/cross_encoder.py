@@ -45,11 +45,16 @@ class LocalCrossEncoderBackend:
         model_name_or_path: str,
         *,
         device: str | None = None,
+        trust_remote_code: bool = False,
     ) -> None:
         from sentence_transformers import CrossEncoder
 
         resolved_device = device or _auto_device()
-        self._model = CrossEncoder(model_name_or_path, device=resolved_device)
+        self._model = CrossEncoder(
+            model_name_or_path,
+            device=resolved_device,
+            trust_remote_code=trust_remote_code,
+        )
         self._model_name = model_name_or_path
         logger.info(
             "Loaded cross-encoder %s on %s",

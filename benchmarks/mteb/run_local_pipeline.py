@@ -36,6 +36,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pipeline-strategy", default="auto",
                         choices=["auto", "dense_dominant", "hybrid", "sparse_boost"],
                         help="Pipeline strategy (auto detects embedding quality)")
+    parser.add_argument("--trust-remote-code", action="store_true",
+                        help="Pass trust_remote_code=True to cross-encoder (needed for gemma models)")
     parser.add_argument("--output-dir", default="benchmarks/mteb/results/local-pipeline")
     args = parser.parse_args(argv)
 
@@ -64,7 +66,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_reranker:
         from cam_rag.reranking.cross_encoder import LocalCrossEncoderBackend
         print(f"Loading cross-encoder: {args.cross_encoder}")
-        reranker = LocalCrossEncoderBackend(args.cross_encoder)
+        reranker = LocalCrossEncoderBackend(
+            args.cross_encoder,
+            trust_remote_code=args.trust_remote_code,
+        )
 
     # Build spec
     spec = RAGAppSpec(
