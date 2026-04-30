@@ -13,5 +13,6 @@ build/
 data/
 indexes/
 benchmarks/mteb/results/
+output/
 *.db
 *.sqlite

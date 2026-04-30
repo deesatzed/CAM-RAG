@@ -61,9 +61,24 @@ class DenseVectorRetriever:
     ) -> None:
         self.backend = backend or HashEmbeddingBackend()
         self.documents = list(documents)
-        self._vectors = [
-            self._safe_embed(doc) for doc in self.documents
-        ]
+        self._vectors = self._embed_all(self.documents)
+
+    def _embed_all(
+        self, documents: list[RetrievalDocument]
+    ) -> list[list[float]]:
+        """Embed all documents, using batch API when available."""
+        if not documents:
+            return []
+        # Use embed_batch for efficiency when backend supports it
+        if hasattr(self.backend, "embed_batch"):
+            texts = [doc.text for doc in documents]
+            try:
+                return self.backend.embed_batch(texts)
+            except Exception:
+                logger.warning(
+                    "embed_batch failed, falling back to single-doc embedding"
+                )
+        return [self._safe_embed(doc) for doc in documents]
 
     def _safe_embed(
         self, doc: RetrievalDocument
@@ -85,7 +100,11 @@ class DenseVectorRetriever:
         """Return top-*k* docs by cosine similarity to *query*."""
         if k <= 0 or not self.documents:
             return []
-        query_vector = self.backend.embed(query)
+        # Use embed_query when available (instruction-aware backends)
+        if hasattr(self.backend, "embed_query"):
+            query_vector = self.backend.embed_query(query)
+        else:
+            query_vector = self.backend.embed(query)
         if not any(query_vector):
             return []
 

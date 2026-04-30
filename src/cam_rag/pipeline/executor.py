@@ -18,7 +18,13 @@ from cam_rag.pipeline.governance import FitnessScore, FitnessTracker, LifecycleM
 from cam_rag.pipeline.registry import ExecutionPlan
 from cam_rag.rag.models import Citation, Evidence
 from cam_rag.reranking.prompt import build_rerank_prompt, parse_rerank_scores
+from cam_rag.pipeline.query_decompose import QueryDecomposeStep
+from cam_rag.pipeline.reciprocal_neighbor import ReciprocalNeighborStep
+from cam_rag.pipeline.score_normalize import ScoreNormalizeStep
+from cam_rag.pipeline.title_boost import TitleBoostStep
+from cam_rag.retrieval.adaptive_fusion import compute_idf_adaptive_weights
 from cam_rag.retrieval.dense import DenseVectorRetriever
+from cam_rag.retrieval.hyde import HyDEStep
 from cam_rag.retrieval.fusion import rrf_fuse
 from cam_rag.retrieval.query_expansion import build_expanded_query, extract_expansion_terms
 from cam_rag.retrieval.sparse import SparseBM25Retriever
@@ -126,6 +132,43 @@ class DenseVectorStep:
         ctx.dense_results = ensemble_results[first_key]
 
 
+class AdaptiveFusionStep:
+    """Compute IDF-adaptive fusion weights from the query and BM25 index.
+
+    When ``ctx.spec.adaptive_fusion_enabled`` is True and a sparse retriever
+    is available, this step analyses query-term IDF to shift sparse/dense
+    fusion weights before RRF runs.  No-op otherwise.
+    """
+
+    name = "adaptive_fusion_weights"
+
+    def execute(self, ctx: PipelineContext) -> None:
+        if not ctx.spec.adaptive_fusion_enabled:
+            return
+        if ctx.sparse_retriever is None:
+            return
+
+        query_terms = ctx.spec.tokenize(ctx.expanded_query)
+        if not query_terms:
+            return
+
+        # Extract document frequencies from the BM25 retriever
+        df = getattr(ctx.sparse_retriever, "_document_frequencies", None)
+        if df is None:
+            return
+
+        num_docs = len(ctx.sparse_retriever.documents)
+        dense_w, sparse_w = compute_idf_adaptive_weights(
+            query_terms,
+            df,
+            num_docs,
+            base_dense_weight=ctx.adaptive.dense_weight,
+            base_sparse_weight=ctx.adaptive.sparse_weight,
+        )
+        ctx.adaptive.dense_weight = dense_w
+        ctx.adaptive.sparse_weight = sparse_w
+
+
 class RRFFusionStep:
     """Fuse sparse + dense results with Reciprocal Rank Fusion.
 
@@ -160,6 +203,9 @@ class RRFFusionStep:
                     # Equal share of dense_weight
                     weights[dense_name] = ctx.adaptive.dense_weight / num_dense
 
+            # Include retriever plugin results in N-way fusion
+            _add_plugin_results(ctx, ranked_lists, names, weights)
+
             ctx.fused_results = rrf_fuse(
                 *ranked_lists,
                 names=names,
@@ -167,16 +213,21 @@ class RRFFusionStep:
                 weights=weights,
             )[:ctx.limit]
         else:
-            # Standard 2-way fusion (backward compatible)
+            ranked_lists = [ctx.dense_results, ctx.sparse_results]
+            names = ["dense", "sparse"]
+            weights = {
+                "dense": ctx.adaptive.dense_weight,
+                "sparse": ctx.adaptive.sparse_weight,
+            }
+
+            # Include retriever plugin results in N-way fusion
+            _add_plugin_results(ctx, ranked_lists, names, weights)
+
             ctx.fused_results = rrf_fuse(
-                ctx.dense_results,
-                ctx.sparse_results,
-                names=["dense", "sparse"],
+                *ranked_lists,
+                names=names,
                 rrf_k=ctx.adaptive.rrf_k,
-                weights={
-                    "dense": ctx.adaptive.dense_weight,
-                    "sparse": ctx.adaptive.sparse_weight,
-                },
+                weights=weights,
             )[:ctx.limit]
 
         ctx.evidence = _fused_to_evidence(ctx)
@@ -415,6 +466,43 @@ class CitationGroundingStep:
         ctx.confidence_details["grounding"] = report.to_dict()
 
 
+class DenseToEvidenceStep:
+    """Convert dense retrieval results directly to Evidence, bypassing RRF.
+
+    Used by the ``dense_dominant`` strategy when BM25/RRF would dilute
+    strong dense embeddings.  The dense retriever's cosine similarity
+    scores become the evidence scores directly.
+    """
+
+    name = "dense_to_evidence"
+
+    def execute(self, ctx: PipelineContext) -> None:
+        if not ctx.dense_results:
+            return
+        query_terms = set(ctx.spec.tokenize(ctx.expanded_query))
+        evidence: list[Evidence] = []
+        for i, result in enumerate(ctx.dense_results[:ctx.limit]):
+            chunk = ctx.chunk_by_id.get(result.doc_id)
+            if chunk is None:
+                continue
+            matched_terms = sorted(
+                query_terms.intersection(ctx.spec.tokenize(chunk.text))
+            )
+            evidence.append(
+                Evidence(
+                    chunk=chunk,
+                    score=result.score,
+                    retriever="dense_only",
+                    rank=i,
+                    signals={
+                        "matched_terms": matched_terms,
+                        "strategy": "dense_dominant",
+                    },
+                )
+            )
+        ctx.evidence = evidence
+
+
 class CrossEncoderRerankStep:
     """Re-score evidence using a cross-encoder reranking backend.
 
@@ -584,15 +672,22 @@ _BUILTIN_STEPS: dict[str, TechniqueStep] = {}
 def _register_builtins() -> None:
     for step_cls in (
         SparseBM25Step,
+        HyDEStep,
         DenseVectorStep,
+        AdaptiveFusionStep,
         RRFFusionStep,
+        DenseToEvidenceStep,
+        TitleBoostStep,
         MoEImportanceScoringStep,
         AccuracyContractStep,
         SelectiveFilterStep,
         ComplexityRoutingStep,
         QueryExpansionStep,
+        QueryDecomposeStep,
         CrossEncoderRerankStep,
+        ReciprocalNeighborStep,
         MultiHopRetrievalStep,
+        ScoreNormalizeStep,
         ConfidenceScoringStep,
         CitationGroundingStep,
         GenerationStep,
@@ -685,6 +780,53 @@ class PipelineExecutor:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _add_plugin_results(
+    ctx: PipelineContext,
+    ranked_lists: list,
+    names: list[str],
+    weights: dict[str, float],
+) -> None:
+    """Add retriever plugin results to the fusion inputs.
+
+    Each plugin's results are added as a separate ranked list with
+    equal weight share (distributed evenly across all plugins).
+    """
+    plugins = getattr(ctx.spec, "retriever_plugins", None)
+    if not plugins:
+        return
+
+    # Index plugins if not already done
+    plugin_indexed = ctx.extras.get("_plugins_indexed", set())
+    for plugin in plugins:
+        if plugin.name not in plugin_indexed:
+            try:
+                plugin.index(ctx.retrieval_docs)
+                plugin_indexed.add(plugin.name)
+            except Exception:
+                logger.warning(
+                    "Plugin %s failed to index, skipping", plugin.name,
+                )
+                continue
+    ctx.extras["_plugins_indexed"] = plugin_indexed
+
+    # Retrieve from each plugin
+    k = max(ctx.limit, ctx.adaptive.dense_k)
+    # Give plugins an equal share of weight (0.1 per plugin by default)
+    plugin_weight = 0.1
+    for plugin in plugins:
+        try:
+            results = plugin.retrieve(ctx.expanded_query, k=k)
+        except Exception:
+            logger.warning(
+                "Plugin %s failed to retrieve, skipping", plugin.name,
+            )
+            continue
+        if results:
+            ranked_lists.append(results)
+            names.append(f"plugin_{plugin.name}")
+            weights[f"plugin_{plugin.name}"] = plugin_weight
 
 
 def _fused_to_evidence(ctx: PipelineContext) -> list[Evidence]:

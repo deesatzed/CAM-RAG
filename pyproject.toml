@@ -33,6 +33,11 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.4",
 ]
+finetune = [
+    "sentence-transformers>=5.0",
+    "datasets>=4.0",
+    "accelerate>=1.0",
+]
 benchmark = [
     "mteb>=2.2.0",
     "sentence-transformers>=3.0",

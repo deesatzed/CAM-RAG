@@ -221,3 +221,24 @@ def test_encode_falls_back_to_embed_without_batch() -> None:
 
     assert len(result) == 2
     assert all(len(v) == 8 for v in result)
+
+
+# ---------------------------------------------------------------------------
+# local: prefix loading test
+# ---------------------------------------------------------------------------
+
+
+def test_load_model_local_prefix() -> None:
+    """local: prefix instantiates LocalSentenceTransformerBackend."""
+    from cam_rag.finetuning.backend import LocalSentenceTransformerBackend
+
+    parser = build_arg_parser()
+    args = parser.parse_args(["--model", "local:all-MiniLM-L6-v2"])
+    mteb_stub = SimpleNamespace()
+
+    model = _load_model(args, mteb_stub)
+
+    assert isinstance(model, CamRAGMTEBModel)
+    assert isinstance(model.backend, LocalSentenceTransformerBackend)
+    assert model.backend.dim == 384
+    assert model.mteb_model_meta["name"] == "local-all-MiniLM-L6-v2"

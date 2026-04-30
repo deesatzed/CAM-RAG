@@ -153,6 +153,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
             '(e.g. \'{"moe_scoring_enabled": true}\').'
         ),
     )
+    parser.add_argument(
+        "--pipeline-spec",
+        default=None,
+        help=(
+            "JSON string of RAGAppSpec overrides applied when using pipeline: model prefix. "
+            'Same format as --spec-overrides but actually applied to the spec object.'
+        ),
+    )
     return parser
 
 
@@ -215,6 +223,80 @@ def _load_model(args: argparse.Namespace, mteb: Any) -> Any:
         return CamRAGMTEBModel(
             HashEmbeddingBackend(dim=args.hash_dim),
             name=f"cam-rag-hash-{args.hash_dim}",
+        )
+
+    if args.model.startswith("local:"):
+        model_path = args.model[len("local:"):]
+        from cam_rag.finetuning.backend import LocalSentenceTransformerBackend
+
+        backend = LocalSentenceTransformerBackend(model_path)
+        return CamRAGMTEBModel(backend, name=f"local-{Path(model_path).name}")
+
+    if args.model.startswith("pipeline:"):
+        from cam_rag.benchmarks.search_protocol import CamRAGSearchModel
+
+        spec_overrides = parse_spec_overrides(args.spec_overrides)
+        spec_kwargs: dict[str, Any] = {
+            "name": "mteb-pipeline-bench",
+            "use_pipeline": True,
+        }
+        # Apply spec overrides to the RAGAppSpec
+        for key, value in spec_overrides.items():
+            spec_kwargs[key] = value
+
+        # Parse the backend portion after "pipeline:"
+        backend_spec = args.model[len("pipeline:"):]
+        if backend_spec and backend_spec != "hash":
+            if backend_spec.startswith("openrouter:"):
+                model_id = backend_spec[len("openrouter:"):]
+                dim = args.embedding_dim or 2560
+                spec_kwargs["embedding_backend"] = OpenRouterEmbeddingBackend(
+                    model=model_id, dim=dim,
+                )
+            elif backend_spec.startswith("ollama:"):
+                model_id = backend_spec[len("ollama:"):]
+                dim = args.embedding_dim or 1024
+                spec_kwargs["embedding_backend"] = OllamaEmbeddingBackend(
+                    model=model_id, dim=dim,
+                )
+            elif backend_spec.startswith("local:"):
+                model_path = backend_spec[len("local:"):]
+                from cam_rag.finetuning.backend import LocalSentenceTransformerBackend
+                spec_kwargs["embedding_backend"] = LocalSentenceTransformerBackend(model_path)
+            else:
+                spec_kwargs["embedding_backend"] = HashEmbeddingBackend(dim=args.hash_dim)
+        else:
+            spec_kwargs["embedding_backend"] = HashEmbeddingBackend(dim=args.hash_dim)
+
+        # Wire cross_encoder_model → reranker_backend object
+        cross_encoder_model = spec_kwargs.pop("cross_encoder_model", "") or ""
+        if cross_encoder_model:
+            from cam_rag.reranking.cross_encoder import LocalCrossEncoderBackend
+            spec_kwargs["reranker_backend"] = LocalCrossEncoderBackend(cross_encoder_model)
+
+        # Wire instruction_prefix → InstructionEmbeddingBackend wrapper
+        instruction_prefix = spec_kwargs.get("instruction_prefix", "")
+        if instruction_prefix and "embedding_backend" in spec_kwargs:
+            from cam_rag.retrieval.instruction_embeddings import InstructionEmbeddingBackend
+            spec_kwargs["embedding_backend"] = InstructionEmbeddingBackend(
+                spec_kwargs["embedding_backend"],
+                instruction=instruction_prefix,
+            )
+
+        from cam_rag.rag.spec import RAGAppSpec
+
+        # Extract SearchModel-level overrides (not RAGAppSpec fields)
+        dense_weight = spec_kwargs.pop("dense_weight", 0.6)
+        sparse_weight = spec_kwargs.pop("sparse_weight", 0.4)
+        retrieval_depth = spec_kwargs.pop("retrieval_depth", 100)
+
+        spec = RAGAppSpec(**spec_kwargs)
+        return CamRAGSearchModel(
+            spec,
+            name=f"pipeline-{backend_spec or 'hash'}",
+            dense_weight=float(dense_weight),
+            sparse_weight=float(sparse_weight),
+            retrieval_depth=int(retrieval_depth),
         )
 
     if args.model.startswith("openrouter:"):

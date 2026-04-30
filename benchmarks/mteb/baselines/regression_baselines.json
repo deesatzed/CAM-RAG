@@ -1,0 +1,67 @@
+{
+  "baselines": [
+    {
+      "task": "NFCorpus",
+      "config": "miniLM-pipeline-ms-marco",
+      "metric": "ndcg_10",
+      "value": 0.351,
+      "timestamp": "2026-04-30T00:00:00+00:00"
+    },
+    {
+      "task": "NFCorpus",
+      "config": "qwen3-8b-embed-only",
+      "metric": "ndcg_10",
+      "value": 0.384,
+      "timestamp": "2026-04-30T00:00:00+00:00"
+    },
+    {
+      "task": "NFCorpus",
+      "config": "qwen3-8b-pipeline-bge-reranker-large",
+      "metric": "ndcg_10",
+      "value": 0.34594,
+      "timestamp": "2026-04-30T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "miniLM-bm25-dense-only",
+      "metric": "ndcg_10",
+      "value": 0.57243,
+      "timestamp": "2026-04-30T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "miniLM-pipeline-bge-reranker-large",
+      "metric": "ndcg_10",
+      "value": 0.74295,
+      "timestamp": "2026-04-30T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "miniLM-pipeline-ms-marco",
+      "metric": "ndcg_10",
+      "value": 0.69207,
+      "timestamp": "2026-04-30T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "qwen3-8b-embed-only",
+      "metric": "ndcg_10",
+      "value": 0.768,
+      "timestamp": "2026-04-30T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "qwen3-8b-pipeline-bge-reranker-large",
+      "metric": "ndcg_10",
+      "value": 0.74758,
+      "timestamp": "2026-04-30T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "qwen3-8b-pipeline-no-reranker",
+      "metric": "ndcg_10",
+      "value": 0.60207,
+      "timestamp": "2026-04-30T00:00:00+00:00"
+    }
+  ]
+}

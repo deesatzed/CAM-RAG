@@ -69,6 +69,12 @@ class RAGAppSpec:
     selective_filter_threshold: float = 0.55
     etf_verification_enabled: bool = False
     complexity_routing_enabled: bool = False
+    instruction_prefix: str = ""
+    adaptive_fusion_enabled: bool = False
+    hyde_enabled: bool = False
+    cross_encoder_model: str = ""
+    pipeline_strategy: str = "auto"
+    retriever_plugins: list[Any] = field(default_factory=list)
 
     def tokenize(self, text: str) -> list[str]:
         return self.tokenizer(text)
