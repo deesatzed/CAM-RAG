@@ -75,6 +75,7 @@ class RAGAppSpec:
     cross_encoder_model: str = ""
     pipeline_strategy: str = "auto"
     retriever_plugins: list[Any] = field(default_factory=list)
+    auto_calibrate: bool = False
 
     def tokenize(self, text: str) -> list[str]:
         return self.tokenizer(text)

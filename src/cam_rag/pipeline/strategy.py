@@ -1,16 +1,20 @@
 """Pipeline strategy definitions and adaptive routing.
 
-Defines three pre-built pipeline strategies based on benchmark evidence:
+Defines four pre-built pipeline strategies based on benchmark evidence:
 
 - **dense_dominant**: Skip BM25/RRF, use dense retrieval only + reranker.
   For strong embeddings (>= 2048d) where BM25 fusion dilutes quality.
+- **strong_hybrid**: Full hybrid pipeline weighted toward dense retrieval.
+  For strong embeddings on short-doc / keyword-heavy corpora where BM25
+  keyword matching is still valuable despite high-quality embeddings.
 - **hybrid**: Full BM25 + dense + RRF + reranker pipeline. For moderate
   embeddings where sparse and dense signals complement each other.
 - **sparse_boost**: Boost BM25 weight for weak embeddings or
   keyword-heavy domains.
 
 The ``StrategyRouter`` selects the appropriate strategy based on an
-``EmbeddingQualityTier`` or an explicit spec override.
+``EmbeddingQualityTier`` and optional ``CorpusSignals``, or an explicit
+spec override.
 """
 
 from __future__ import annotations
@@ -101,6 +105,21 @@ HYBRID = PipelineStrategy(
     ),
 )
 
+STRONG_HYBRID = PipelineStrategy(
+    name="strong_hybrid",
+    steps=_HYBRID_STEPS,
+    dense_weight=0.7,
+    sparse_weight=0.3,
+    retrieval_depth=100,
+    description=(
+        "Hybrid pipeline tuned for strong embeddings on short-doc / "
+        "keyword-heavy corpora. Preserves BM25 keyword matching while "
+        "still weighting dense retrieval heavily. Benchmark evidence: "
+        "NFCorpus loses -10% with dense_dominant; strong_hybrid recovers "
+        "BM25 keyword signal."
+    ),
+)
+
 SPARSE_BOOST = PipelineStrategy(
     name="sparse_boost",
     steps=_SPARSE_BOOST_STEPS,
@@ -116,6 +135,7 @@ SPARSE_BOOST = PipelineStrategy(
 # All built-in strategies
 BUILTIN_STRATEGIES: dict[str, PipelineStrategy] = {
     "dense_dominant": DENSE_DOMINANT,
+    "strong_hybrid": STRONG_HYBRID,
     "hybrid": HYBRID,
     "sparse_boost": SPARSE_BOOST,
 }
@@ -143,7 +163,13 @@ class StrategyRouter:
     ) -> None:
         self._strategies = dict(strategies or BUILTIN_STRATEGIES)
 
-    def select(self, quality_tier: str, spec: Any) -> PipelineStrategy:
+    def select(
+        self,
+        quality_tier: str,
+        spec: Any,
+        *,
+        corpus_signals: Any | None = None,
+    ) -> PipelineStrategy:
         """Select a pipeline strategy.
 
         Parameters
@@ -152,6 +178,10 @@ class StrategyRouter:
             One of ``"strong"``, ``"moderate"``, ``"weak"``.
         spec:
             A ``RAGAppSpec`` (or anything with a ``pipeline_strategy`` attribute).
+        corpus_signals:
+            Optional ``CorpusSignals`` describing corpus characteristics.
+            When provided and strategy is ``"auto"``, corpus-aware overrides
+            are applied after tier-based selection.
         """
         explicit = getattr(spec, "pipeline_strategy", "auto")
         if explicit != "auto":
@@ -163,7 +193,41 @@ class StrategyRouter:
             return self._strategies[explicit]
 
         strategy_name = _TIER_STRATEGY_MAP.get(quality_tier, "hybrid")
+
+        if corpus_signals is not None:
+            strategy_name = self._apply_corpus_overrides(
+                strategy_name, quality_tier, corpus_signals,
+            )
+
         return self._strategies[strategy_name]
+
+    @staticmethod
+    def _apply_corpus_overrides(
+        strategy_name: str,
+        quality_tier: str,
+        signals: Any,
+    ) -> str:
+        """Override strategy based on corpus characteristics.
+
+        Even with strong embeddings, short-doc / high-overlap corpora
+        benefit from hybrid (BM25 + dense) rather than dense-only.
+        """
+        # Rule 1: Short documents favor hybrid even for strong embeddings
+        short_frac = getattr(signals, "short_doc_fraction", 0.0)
+        if quality_tier == "strong" and short_frac > 0.5:
+            return "strong_hybrid"
+
+        # Rule 2: High vocabulary overlap means BM25 is valuable
+        overlap = getattr(signals, "vocab_overlap_ratio", 0.0)
+        if quality_tier == "strong" and overlap > 0.3:
+            return "strong_hybrid"
+
+        # Rule 3: Very small corpus — sparse_boost's depth overshoots
+        corpus_size = getattr(signals, "corpus_size", 0)
+        if corpus_size < 1000 and strategy_name == "sparse_boost":
+            return "hybrid"
+
+        return strategy_name
 
     def register_strategy(self, strategy: PipelineStrategy) -> None:
         """Register a custom pipeline strategy."""

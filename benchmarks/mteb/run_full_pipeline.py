@@ -142,6 +142,8 @@ def main(argv: list[str] | None = None) -> int:
             "'sparse_boost' (boost BM25). Default: auto."
         ),
     )
+    parser.add_argument("--auto-calibrate", action="store_true",
+                        help="Enable unsupervised auto-calibration of pipeline params")
     parser.add_argument(
         "--spec-overrides",
         default=None,
@@ -177,6 +179,8 @@ def main(argv: list[str] | None = None) -> int:
         overrides["sparse_weight"] = args.sparse_weight
     if args.retrieval_depth is not None:
         overrides["retrieval_depth"] = args.retrieval_depth
+    if args.auto_calibrate:
+        overrides["auto_calibrate"] = True
 
     # Wire HyDE generation backend
     if args.hyde and args.hyde_backend:

@@ -98,6 +98,8 @@ class CamRAGSearchModel:
         # Quality tier detected at index time
         self._quality_tier: Any = None
         self._strategy_router = StrategyRouter()
+        self._corpus_signals: Any = None
+        self._calibration_result: Any = None
 
     def index(self, corpus: Any, **kwargs: Any) -> None:
         """Build internal retrieval indexes from an MTEB corpus dataset.
@@ -108,7 +110,7 @@ class CamRAGSearchModel:
             HF Dataset with columns ``id``, ``text``, and optionally ``title``.
         **kwargs
             Additional keyword arguments from MTEB (task_metadata,
-            hf_split, encode_kwargs, etc.) — accepted but not used.
+            hf_split, encode_kwargs, etc.) -- accepted but not used.
         """
         self._chunks = []
         self._chunk_by_id = {}
@@ -148,6 +150,25 @@ class CamRAGSearchModel:
             backend=backend,
         )
 
+        # Compute corpus signals for corpus-aware strategy routing
+        try:
+            from cam_rag.retrieval.corpus_signals import compute_corpus_signals
+            doc_texts = [doc.text for doc in self._retrieval_docs]
+            self._corpus_signals = compute_corpus_signals(
+                doc_texts, tokenizer=self.spec.tokenize,
+            )
+            logger.info(
+                "Corpus signals: avg_len=%.1f short_frac=%.2f "
+                "vocab_overlap=%.3f corpus_size=%d",
+                self._corpus_signals.avg_doc_length,
+                self._corpus_signals.short_doc_fraction,
+                self._corpus_signals.vocab_overlap_ratio,
+                self._corpus_signals.corpus_size,
+            )
+        except Exception:
+            logger.warning("Corpus signal computation failed")
+            self._corpus_signals = None
+
         # Detect embedding quality for adaptive strategy routing
         pipeline_strategy = getattr(self.spec, "pipeline_strategy", "auto")
         if pipeline_strategy == "auto":
@@ -161,6 +182,10 @@ class CamRAGSearchModel:
                 logger.warning(
                     "Plugin %s failed to index", getattr(plugin, "name", "?"),
                 )
+
+        # Auto-calibration (when enabled and corpus is large enough)
+        if getattr(self.spec, "auto_calibrate", False) and len(self._retrieval_docs) >= 50:
+            self._run_calibration(backend)
 
         logger.info(
             "Indexed %d documents for SearchProtocol benchmark "
@@ -196,6 +221,30 @@ class CamRAGSearchModel:
             )
             self._quality_tier = None
 
+    def _run_calibration(self, backend: Any) -> None:
+        """Run unsupervised pipeline parameter calibration."""
+        try:
+            from cam_rag.pipeline.calibration import PipelineCalibrator
+            calibrator = PipelineCalibrator(seed=42)
+            self._calibration_result = calibrator.calibrate(
+                documents=self._retrieval_docs,
+                backend=backend,
+                tokenizer=self.spec.tokenize,
+            )
+            logger.info(
+                "Auto-calibration: dense_w=%.2f sparse_w=%.2f depth=%d "
+                "rrf_k=%.1f (score=%.4f, %d grid points)",
+                self._calibration_result.dense_weight,
+                self._calibration_result.sparse_weight,
+                self._calibration_result.retrieval_depth,
+                self._calibration_result.rrf_k,
+                self._calibration_result.calibration_score,
+                self._calibration_result.grid_points_evaluated,
+            )
+        except Exception:
+            logger.warning("Auto-calibration failed, using defaults")
+            self._calibration_result = None
+
     def search(
         self,
         queries: Any,
@@ -222,7 +271,9 @@ class CamRAGSearchModel:
         quality_tier_name = (
             self._quality_tier.tier if self._quality_tier else "moderate"
         )
-        strategy = self._strategy_router.select(quality_tier_name, self.spec)
+        strategy = self._strategy_router.select(
+            quality_tier_name, self.spec, corpus_signals=self._corpus_signals,
+        )
 
         # Build execution plan from strategy steps
         # Filter to only registered steps
@@ -233,18 +284,33 @@ class CamRAGSearchModel:
         plan = ExecutionPlan(steps=steps, query_type="summary")
         executor = PipelineExecutor()
 
-        # Use strategy weights (or explicit overrides)
-        dense_weight = (
-            self._dense_weight
-            if self._dense_weight != 0.6 or strategy.dense_weight == 0.6
-            else strategy.dense_weight
-        )
-        sparse_weight = (
-            self._sparse_weight
-            if self._sparse_weight != 0.4 or strategy.sparse_weight == 0.4
-            else strategy.sparse_weight
-        )
-        depth = self._retrieval_depth or strategy.retrieval_depth
+        # Priority: explicit constructor args > calibration > strategy defaults
+        # Determine if constructor args are non-default (user overrides)
+        user_set_dense = self._dense_weight != 0.6
+        user_set_sparse = self._sparse_weight != 0.4
+
+        if user_set_dense:
+            dense_weight = self._dense_weight
+        elif self._calibration_result is not None:
+            dense_weight = self._calibration_result.dense_weight
+        elif strategy.dense_weight != 0.6:
+            dense_weight = strategy.dense_weight
+        else:
+            dense_weight = self._dense_weight
+
+        if user_set_sparse:
+            sparse_weight = self._sparse_weight
+        elif self._calibration_result is not None:
+            sparse_weight = self._calibration_result.sparse_weight
+        elif strategy.sparse_weight != 0.4:
+            sparse_weight = strategy.sparse_weight
+        else:
+            sparse_weight = self._sparse_weight
+
+        if self._calibration_result is not None and not user_set_dense:
+            depth = self._calibration_result.retrieval_depth
+        else:
+            depth = self._retrieval_depth or strategy.retrieval_depth
 
         logger.debug(
             "Using strategy=%s steps=%d dense_w=%.2f sparse_w=%.2f depth=%d",
@@ -265,6 +331,11 @@ class CamRAGSearchModel:
                     final_k=depth,
                     dense_weight=dense_weight,
                     sparse_weight=sparse_weight,
+                    rrf_k=(
+                        self._calibration_result.rrf_k
+                        if self._calibration_result is not None and not user_set_dense
+                        else 60.0
+                    ),
                 ),
                 limit=depth,
             )

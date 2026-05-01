@@ -38,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Pipeline strategy (auto detects embedding quality)")
     parser.add_argument("--trust-remote-code", action="store_true",
                         help="Pass trust_remote_code=True to cross-encoder (needed for gemma models)")
+    parser.add_argument("--auto-calibrate", action="store_true",
+                        help="Enable unsupervised auto-calibration of pipeline params")
     parser.add_argument("--output-dir", default="benchmarks/mteb/results/local-pipeline")
     args = parser.parse_args(argv)
 
@@ -80,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         adaptive_fusion_enabled=args.adaptive_fusion,
         retrieval_top_k=args.top_k,
         pipeline_strategy=args.pipeline_strategy,
+        auto_calibrate=args.auto_calibrate,
     )
 
     model = CamRAGSearchModel(
@@ -127,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         "adaptive_fusion": args.adaptive_fusion,
         "instruction_prefix": args.instruction_prefix,
         "retrieval_depth": args.retrieval_depth,
+        "auto_calibrate": args.auto_calibrate,
         "scores": scores,
         "elapsed_seconds": round(elapsed, 1),
     }
