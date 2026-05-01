@@ -42,9 +42,13 @@ class TestPipelineStrategy:
         assert SPARSE_BOOST.retrieval_depth == 150
         assert HYBRID.retrieval_depth == 100
 
-    def test_all_strategies_have_reranker(self) -> None:
-        for strategy in BUILTIN_STRATEGIES.values():
-            assert "cross_encoder_rerank" in strategy.steps
+    def test_most_strategies_have_reranker(self) -> None:
+        # dense_only intentionally skips the reranker
+        for name, strategy in BUILTIN_STRATEGIES.items():
+            if name == "dense_only":
+                assert "cross_encoder_rerank" not in strategy.steps
+            else:
+                assert "cross_encoder_rerank" in strategy.steps
 
     def test_strategy_is_frozen(self) -> None:
         with pytest.raises(AttributeError):

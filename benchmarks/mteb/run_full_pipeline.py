@@ -135,10 +135,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--pipeline-strategy",
         default=None,
-        choices=["auto", "dense_dominant", "hybrid", "sparse_boost"],
+        choices=["auto", "dense_only", "dense_dominant", "strong_hybrid", "hybrid", "sparse_boost"],
         help=(
             "Pipeline strategy: 'auto' (detect embedding quality), "
-            "'dense_dominant' (skip BM25), 'hybrid' (full pipeline), "
+            "'dense_only' (no BM25, no reranker), "
+            "'dense_dominant' (skip BM25, keep reranker), "
+            "'strong_hybrid' (hybrid weighted 0.7 dense), "
+            "'hybrid' (full pipeline), "
             "'sparse_boost' (boost BM25). Default: auto."
         ),
     )

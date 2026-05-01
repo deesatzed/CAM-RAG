@@ -8,6 +8,7 @@ import pytest
 
 from cam_rag.pipeline.strategy import (
     BUILTIN_STRATEGIES,
+    DENSE_ONLY,
     STRONG_HYBRID,
     StrategyRouter,
 )
@@ -64,11 +65,11 @@ class TestCorpusAwareRouting:
         result = router.select("strong", _make_spec(), corpus_signals=signals)
         assert result.name == "strong_hybrid"
 
-    def test_strong_long_docs_routes_to_dense_dominant(self) -> None:
+    def test_strong_long_docs_routes_to_dense_only(self) -> None:
         router = StrategyRouter()
         signals = _make_signals(short_doc_fraction=0.1, vocab_overlap_ratio=0.1)
         result = router.select("strong", _make_spec(), corpus_signals=signals)
-        assert result.name == "dense_dominant"
+        assert result.name == "dense_only"
 
     def test_strong_high_vocab_overlap_routes_to_strong_hybrid(self) -> None:
         router = StrategyRouter()
@@ -129,7 +130,11 @@ class TestNFCorpusScenario:
         assert "sparse_bm25" in result.steps
 
     def test_scifact_like_corpus_strong_embeddings(self) -> None:
-        """SciFact: longer scientific docs, lower overlap, strong embeddings."""
+        """SciFact: longer scientific docs, lower overlap, strong embeddings.
+
+        Should route to dense_only (no BM25, no reranker) because benchmark
+        evidence shows the reranker hurts strong embeddings on long docs.
+        """
         router = StrategyRouter()
         signals = _make_signals(
             avg_doc_length=250.0,
@@ -138,6 +143,41 @@ class TestNFCorpusScenario:
             corpus_size=5183,
         )
         result = router.select("strong", _make_spec(), corpus_signals=signals)
-        assert result.name == "dense_dominant"
+        assert result.name == "dense_only"
         assert result.dense_weight == 1.0
         assert "sparse_bm25" not in result.steps
+        assert "cross_encoder_rerank" not in result.steps
+
+
+class TestDenseOnlyStrategy:
+    """Verify the DENSE_ONLY strategy configuration."""
+
+    def test_dense_only_in_builtins(self) -> None:
+        assert "dense_only" in BUILTIN_STRATEGIES
+
+    def test_dense_only_no_bm25(self) -> None:
+        assert "sparse_bm25" not in DENSE_ONLY.steps
+
+    def test_dense_only_no_reranker(self) -> None:
+        assert "cross_encoder_rerank" not in DENSE_ONLY.steps
+
+    def test_dense_only_no_rrf(self) -> None:
+        assert "rrf_fusion" not in DENSE_ONLY.steps
+
+    def test_dense_only_has_dense_vector(self) -> None:
+        assert "dense_vector" in DENSE_ONLY.steps
+
+    def test_dense_only_has_normalize(self) -> None:
+        assert "score_normalize" in DENSE_ONLY.steps
+
+    def test_dense_only_minimal_steps(self) -> None:
+        assert len(DENSE_ONLY.steps) == 3
+
+    def test_dense_only_weights(self) -> None:
+        assert DENSE_ONLY.dense_weight == 1.0
+        assert DENSE_ONLY.sparse_weight == 0.0
+
+    def test_explicit_dense_only_selection(self) -> None:
+        router = StrategyRouter()
+        result = router.select("moderate", _make_spec("dense_only"))
+        assert result.name == "dense_only"

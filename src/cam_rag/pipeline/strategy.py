@@ -1,9 +1,13 @@
 """Pipeline strategy definitions and adaptive routing.
 
-Defines four pre-built pipeline strategies based on benchmark evidence:
+Defines five pre-built pipeline strategies based on benchmark evidence:
 
+- **dense_only**: Pure dense retrieval with no BM25 and no reranker.
+  For strong embeddings on long-doc / low-overlap corpora where the
+  cross-encoder reranker reshuffles already-good rankings into worse order.
 - **dense_dominant**: Skip BM25/RRF, use dense retrieval only + reranker.
-  For strong embeddings (>= 2048d) where BM25 fusion dilutes quality.
+  For strong embeddings (>= 2048d) where BM25 fusion dilutes quality
+  but the reranker may still help.
 - **strong_hybrid**: Full hybrid pipeline weighted toward dense retrieval.
   For strong embeddings on short-doc / keyword-heavy corpora where BM25
   keyword matching is still valuable despite high-quality embeddings.
@@ -72,6 +76,13 @@ _DENSE_DOMINANT_STEPS: tuple[str, ...] = (
     "score_normalize",
 )
 
+# Dense-only: skip BM25/RRF AND skip cross-encoder reranker
+_DENSE_ONLY_STEPS: tuple[str, ...] = (
+    "dense_vector",
+    "dense_to_evidence",
+    "score_normalize",
+)
+
 # Sparse-boost: same steps as hybrid, different weights
 _SPARSE_BOOST_STEPS: tuple[str, ...] = _HYBRID_STEPS
 
@@ -80,6 +91,21 @@ _SPARSE_BOOST_STEPS: tuple[str, ...] = _HYBRID_STEPS
 # Pre-built strategies
 # ---------------------------------------------------------------------------
 
+DENSE_ONLY = PipelineStrategy(
+    name="dense_only",
+    steps=_DENSE_ONLY_STEPS,
+    dense_weight=1.0,
+    sparse_weight=0.0,
+    retrieval_depth=100,
+    description=(
+        "Pure dense retrieval: embed, rank by cosine similarity, done. "
+        "No BM25, no RRF fusion, no cross-encoder reranker. For strong "
+        "embeddings on long-doc / low-overlap corpora. Benchmark evidence: "
+        "Qwen3-8B embed-only = 0.768 vs with reranker = 0.733 on SciFact; "
+        "the reranker reshuffles already-good rankings into worse order."
+    ),
+)
+
 DENSE_DOMINANT = PipelineStrategy(
     name="dense_dominant",
     steps=_DENSE_DOMINANT_STEPS,
@@ -87,9 +113,9 @@ DENSE_DOMINANT = PipelineStrategy(
     sparse_weight=0.0,
     retrieval_depth=100,
     description=(
-        "Skip BM25/RRF entirely. For embeddings >= 2048d with high "
-        "dispersion. Benchmark evidence: Qwen3-8B loses 2.6% from "
-        "BM25 fusion; dense-only preserves embedding quality."
+        "Skip BM25/RRF but keep cross-encoder reranker. For strong "
+        "embeddings where BM25 fusion dilutes quality but the reranker "
+        "may still help on certain corpora."
     ),
 )
 
@@ -134,13 +160,15 @@ SPARSE_BOOST = PipelineStrategy(
 
 # All built-in strategies
 BUILTIN_STRATEGIES: dict[str, PipelineStrategy] = {
+    "dense_only": DENSE_ONLY,
     "dense_dominant": DENSE_DOMINANT,
     "strong_hybrid": STRONG_HYBRID,
     "hybrid": HYBRID,
     "sparse_boost": SPARSE_BOOST,
 }
 
-# Tier → strategy name mapping
+# Tier → strategy name mapping (without corpus signals)
+# With corpus signals, _apply_corpus_overrides refines this further.
 _TIER_STRATEGY_MAP: dict[str, str] = {
     "strong": "dense_dominant",
     "moderate": "hybrid",
@@ -211,19 +239,28 @@ class StrategyRouter:
 
         Even with strong embeddings, short-doc / high-overlap corpora
         benefit from hybrid (BM25 + dense) rather than dense-only.
+        Conversely, strong embeddings on long-doc / low-overlap corpora
+        should skip the cross-encoder reranker entirely.
         """
-        # Rule 1: Short documents favor hybrid even for strong embeddings
         short_frac = getattr(signals, "short_doc_fraction", 0.0)
-        if quality_tier == "strong" and short_frac > 0.5:
-            return "strong_hybrid"
-
-        # Rule 2: High vocabulary overlap means BM25 is valuable
         overlap = getattr(signals, "vocab_overlap_ratio", 0.0)
-        if quality_tier == "strong" and overlap > 0.3:
-            return "strong_hybrid"
-
-        # Rule 3: Very small corpus — sparse_boost's depth overshoots
         corpus_size = getattr(signals, "corpus_size", 0)
+
+        if quality_tier == "strong":
+            # Rule 1: Short documents → strong_hybrid (keep BM25)
+            if short_frac > 0.5:
+                return "strong_hybrid"
+
+            # Rule 2: High vocabulary overlap → strong_hybrid (BM25 valuable)
+            if overlap > 0.3:
+                return "strong_hybrid"
+
+            # Rule 3: Long docs + low overlap → dense_only (skip reranker)
+            # Benchmark evidence: reranker hurts Qwen3-8B on SciFact
+            # (0.768 embed-only → 0.733 with reranker = -4.6%)
+            return "dense_only"
+
+        # Rule 4: Very small corpus — sparse_boost's depth overshoots
         if corpus_size < 1000 and strategy_name == "sparse_boost":
             return "hybrid"
 

@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sparse-weight", type=float, default=0.4,
                         help="Sparse BM25 weight for RRF fusion (0.0-1.0)")
     parser.add_argument("--pipeline-strategy", default="auto",
-                        choices=["auto", "dense_dominant", "hybrid", "sparse_boost"],
+                        choices=["auto", "dense_only", "dense_dominant", "strong_hybrid", "hybrid", "sparse_boost"],
                         help="Pipeline strategy (auto detects embedding quality)")
     parser.add_argument("--trust-remote-code", action="store_true",
                         help="Pass trust_remote_code=True to cross-encoder (needed for gemma models)")
