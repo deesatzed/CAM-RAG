@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from cam_rag.pipeline.strategy import (
+    BLENDED_RERANK,
     BUILTIN_STRATEGIES,
     DENSE_DOMINANT,
     HYBRID,
@@ -132,3 +133,21 @@ class TestStrategyRouter:
         )
         router = StrategyRouter(strategies={"only_strategy": custom})
         assert router.available == ["only_strategy"]
+
+
+class TestBlendedRerankStrategy:
+    def test_blended_rerank_in_builtin_strategies(self) -> None:
+        assert "blended_rerank" in BUILTIN_STRATEGIES
+
+    def test_has_cross_encoder_rerank_in_steps(self) -> None:
+        assert "cross_encoder_rerank" in BLENDED_RERANK.steps
+
+    def test_rerank_blend_weight_is_0_2(self) -> None:
+        assert BLENDED_RERANK.rerank_blend_weight == 0.2
+
+    def test_explicit_selection_via_router(self) -> None:
+        spec = RAGAppSpec(name="test", pipeline_strategy="blended_rerank")
+        router = StrategyRouter()
+        strategy = router.select("strong", spec)
+        assert strategy.name == "blended_rerank"
+        assert strategy.rerank_blend_weight == 0.2

@@ -30,10 +30,12 @@ logger = logging.getLogger(__name__)
 # Steps that are relevant to retrieval scoring (not generation/verification)
 _RETRIEVAL_STEPS = (
     "sparse_bm25",
+    "bm25_antiflood",
     "hyde_expansion",
     "dense_vector",
     "adaptive_fusion_weights",
     "rrf_fusion",
+    "intersection_boost",
     "title_boost",
     "moe_importance_scoring",
     "accuracy_contracts",
@@ -342,6 +344,11 @@ class CamRAGSearchModel:
             # Inject pre-built retrievers
             ctx.sparse_retriever = self._sparse_retriever
             ctx.dense_retriever = self._dense_retriever
+
+            # Pass blend weight from strategy to cross-encoder step
+            blend_w = getattr(strategy, "rerank_blend_weight", 1.0)
+            if blend_w != 1.0:
+                ctx.extras["rerank_blend_weight"] = blend_w
 
             executor.run(plan, ctx)
 

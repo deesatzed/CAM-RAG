@@ -1,6 +1,6 @@
 """Pipeline strategy definitions and adaptive routing.
 
-Defines five pre-built pipeline strategies based on benchmark evidence:
+Defines six pre-built pipeline strategies based on benchmark evidence:
 
 - **dense_only**: Pure dense retrieval with no BM25 and no reranker.
   For strong embeddings on long-doc / low-overlap corpora where the
@@ -15,6 +15,9 @@ Defines five pre-built pipeline strategies based on benchmark evidence:
   embeddings where sparse and dense signals complement each other.
 - **sparse_boost**: Boost BM25 weight for weak embeddings or
   keyword-heavy domains.
+- **blended_rerank**: Dense-dominant with blended reranker scoring
+  (80% original + 20% cross-encoder). For strong embeddings where
+  full replacement hurts but a small additive signal may help.
 
 The ``StrategyRouter`` selects the appropriate strategy based on an
 ``EmbeddingQualityTier`` and optional ``CorpusSignals``, or an explicit
@@ -37,6 +40,7 @@ class PipelineStrategy:
     sparse_weight: float
     retrieval_depth: int
     description: str = ""
+    rerank_blend_weight: float = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -46,10 +50,12 @@ class PipelineStrategy:
 # Full hybrid pipeline retrieval steps (current default)
 _HYBRID_STEPS: tuple[str, ...] = (
     "sparse_bm25",
+    "bm25_antiflood",
     "hyde_expansion",
     "dense_vector",
     "adaptive_fusion_weights",
     "rrf_fusion",
+    "intersection_boost",
     "title_boost",
     "moe_importance_scoring",
     "accuracy_contracts",
@@ -158,6 +164,21 @@ SPARSE_BOOST = PipelineStrategy(
     ),
 )
 
+BLENDED_RERANK = PipelineStrategy(
+    name="blended_rerank",
+    steps=_DENSE_DOMINANT_STEPS,
+    dense_weight=1.0,
+    sparse_weight=0.0,
+    retrieval_depth=100,
+    rerank_blend_weight=0.2,
+    description=(
+        "Dense-dominant with blended reranker scoring: 80% original "
+        "embedding score + 20% cross-encoder reranker. For strong "
+        "embeddings where full reranker replacement hurts but a small "
+        "additive signal may help."
+    ),
+)
+
 # All built-in strategies
 BUILTIN_STRATEGIES: dict[str, PipelineStrategy] = {
     "dense_only": DENSE_ONLY,
@@ -165,6 +186,7 @@ BUILTIN_STRATEGIES: dict[str, PipelineStrategy] = {
     "strong_hybrid": STRONG_HYBRID,
     "hybrid": HYBRID,
     "sparse_boost": SPARSE_BOOST,
+    "blended_rerank": BLENDED_RERANK,
 }
 
 # Tier → strategy name mapping (without corpus signals)

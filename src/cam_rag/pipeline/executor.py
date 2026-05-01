@@ -21,6 +21,8 @@ from cam_rag.reranking.prompt import build_rerank_prompt, parse_rerank_scores
 from cam_rag.pipeline.query_decompose import QueryDecomposeStep
 from cam_rag.pipeline.reciprocal_neighbor import ReciprocalNeighborStep
 from cam_rag.pipeline.score_normalize import ScoreNormalizeStep
+from cam_rag.pipeline.bm25_antiflood import BM25AntiFloodStep
+from cam_rag.pipeline.intersection_boost import IntersectionBoostStep
 from cam_rag.pipeline.title_boost import TitleBoostStep
 from cam_rag.retrieval.adaptive_fusion import compute_idf_adaptive_weights
 from cam_rag.retrieval.dense import DenseVectorRetriever
@@ -535,10 +537,18 @@ class CrossEncoderRerankStep:
             passages = [item.chunk.text for item in to_rerank]
             scores = backend.rerank(ctx.query_text, passages)
 
+            blend_weight = ctx.extras.get(
+                "rerank_blend_weight",
+                getattr(ctx.spec, "rerank_blend_weight", 1.0),
+            )
             for item, rerank_score in zip(to_rerank, scores):
                 item.signals["rrf_score_pre_rerank"] = item.score
                 item.signals["reranker_score"] = rerank_score
-                item.score = rerank_score
+                item.signals["rerank_blend_weight"] = blend_weight
+                if blend_weight >= 1.0:
+                    item.score = rerank_score
+                else:
+                    item.score = (1 - blend_weight) * item.score + blend_weight * rerank_score
 
         # Merge back: reranked items + fast items (fast keep original scores)
         all_items = to_rerank + fast_items
@@ -672,11 +682,13 @@ _BUILTIN_STEPS: dict[str, TechniqueStep] = {}
 def _register_builtins() -> None:
     for step_cls in (
         SparseBM25Step,
+        BM25AntiFloodStep,
         HyDEStep,
         DenseVectorStep,
         AdaptiveFusionStep,
         RRFFusionStep,
         DenseToEvidenceStep,
+        IntersectionBoostStep,
         TitleBoostStep,
         MoEImportanceScoringStep,
         AccuracyContractStep,

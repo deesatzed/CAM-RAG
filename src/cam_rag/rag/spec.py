@@ -76,6 +76,7 @@ class RAGAppSpec:
     pipeline_strategy: str = "auto"
     retriever_plugins: list[Any] = field(default_factory=list)
     auto_calibrate: bool = False
+    rerank_blend_weight: float = 1.0
 
     def tokenize(self, text: str) -> list[str]:
         return self.tokenizer(text)
