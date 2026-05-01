@@ -170,7 +170,7 @@ BUILTIN_STRATEGIES: dict[str, PipelineStrategy] = {
 # Tier → strategy name mapping (without corpus signals)
 # With corpus signals, _apply_corpus_overrides refines this further.
 _TIER_STRATEGY_MAP: dict[str, str] = {
-    "strong": "dense_dominant",
+    "strong": "dense_only",
     "moderate": "hybrid",
     "weak": "sparse_boost",
 }
@@ -237,30 +237,23 @@ class StrategyRouter:
     ) -> str:
         """Override strategy based on corpus characteristics.
 
-        Even with strong embeddings, short-doc / high-overlap corpora
-        benefit from hybrid (BM25 + dense) rather than dense-only.
-        Conversely, strong embeddings on long-doc / low-overlap corpora
-        should skip the cross-encoder reranker entirely.
+        For strong embeddings, the cross-encoder reranker consistently
+        hurts performance regardless of corpus type:
+        - SciFact (long docs): 0.768 embed-only → 0.733 with reranker (-4.6%)
+        - NFCorpus (short docs): 0.384 embed-only → 0.346 with reranker (-9.9%)
+        - NFCorpus dense_only: 0.372 (reranker removed = +7.5% recovery)
+
+        Strong embeddings always route to dense_only (no BM25, no reranker).
         """
-        short_frac = getattr(signals, "short_doc_fraction", 0.0)
-        overlap = getattr(signals, "vocab_overlap_ratio", 0.0)
         corpus_size = getattr(signals, "corpus_size", 0)
 
         if quality_tier == "strong":
-            # Rule 1: Short documents → strong_hybrid (keep BM25)
-            if short_frac > 0.5:
-                return "strong_hybrid"
-
-            # Rule 2: High vocabulary overlap → strong_hybrid (BM25 valuable)
-            if overlap > 0.3:
-                return "strong_hybrid"
-
-            # Rule 3: Long docs + low overlap → dense_only (skip reranker)
-            # Benchmark evidence: reranker hurts Qwen3-8B on SciFact
-            # (0.768 embed-only → 0.733 with reranker = -4.6%)
+            # Benchmark evidence: cross-encoder reranker hurts strong
+            # embeddings on ALL tested corpus types (short docs, long docs,
+            # high overlap, low overlap). Always skip it.
             return "dense_only"
 
-        # Rule 4: Very small corpus — sparse_boost's depth overshoots
+        # Rule: Very small corpus — sparse_boost's depth overshoots
         if corpus_size < 1000 and strategy_name == "sparse_boost":
             return "hybrid"
 

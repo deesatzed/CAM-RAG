@@ -56,11 +56,11 @@ class TestPipelineStrategy:
 
 
 class TestStrategyRouter:
-    def test_select_strong_returns_dense_dominant(self) -> None:
+    def test_select_strong_returns_dense_only(self) -> None:
         spec = RAGAppSpec(name="test", pipeline_strategy="auto")
         router = StrategyRouter()
         strategy = router.select("strong", spec)
-        assert strategy.name == "dense_dominant"
+        assert strategy.name == "dense_only"
 
     def test_select_moderate_returns_hybrid(self) -> None:
         spec = RAGAppSpec(name="test", pipeline_strategy="auto")
