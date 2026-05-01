@@ -62,6 +62,48 @@
       "metric": "ndcg_10",
       "value": 0.60207,
       "timestamp": "2026-04-30T00:00:00+00:00"
+    },
+    {
+      "task": "NFCorpus",
+      "config": "qwen3-8b-dense-only",
+      "metric": "ndcg_10",
+      "value": 0.37167,
+      "timestamp": "2026-05-01T00:00:00+00:00"
+    },
+    {
+      "task": "NFCorpus",
+      "config": "qwen3-8b-strong-hybrid",
+      "metric": "ndcg_10",
+      "value": 0.34436,
+      "timestamp": "2026-05-01T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "qwen3-8b-dense-dominant",
+      "metric": "ndcg_10",
+      "value": 0.73328,
+      "timestamp": "2026-05-01T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "miniLM-hybrid-auto-calibrate",
+      "metric": "ndcg_10",
+      "value": 0.74095,
+      "timestamp": "2026-05-01T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "miniLM-bge-reranker-v2-m3",
+      "metric": "ndcg_10",
+      "value": 0.73733,
+      "timestamp": "2026-05-01T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "qwen3-8b-dense-only",
+      "metric": "ndcg_10",
+      "value": 0.76474,
+      "timestamp": "2026-05-01T00:00:00+00:00"
     }
   ]
 }
