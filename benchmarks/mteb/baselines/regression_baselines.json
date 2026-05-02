@@ -104,6 +104,27 @@
       "metric": "ndcg_10",
       "value": 0.76474,
       "timestamp": "2026-05-01T00:00:00+00:00"
+    },
+    {
+      "task": "SciFact",
+      "config": "qwen3-8b-blended-rerank-bge-reranker-large",
+      "metric": "ndcg_10",
+      "value": 0.78786,
+      "timestamp": "2026-05-02T00:00:00+00:00"
+    },
+    {
+      "task": "NFCorpus",
+      "config": "qwen3-8b-blended-rerank-bge-reranker-large",
+      "metric": "ndcg_10",
+      "value": 0.38703,
+      "timestamp": "2026-05-02T00:00:00+00:00"
+    },
+    {
+      "task": "NFCorpus",
+      "config": "miniLM-hybrid-bge-reranker-large",
+      "metric": "ndcg_10",
+      "value": 0.34574,
+      "timestamp": "2026-05-02T00:00:00+00:00"
     }
   ]
 }

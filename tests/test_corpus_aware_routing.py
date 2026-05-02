@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from cam_rag.pipeline.strategy import (
+    BLENDED_RERANK,
     BUILTIN_STRATEGIES,
     DENSE_ONLY,
     STRONG_HYBRID,
@@ -59,32 +60,32 @@ class TestStrongHybridStrategy:
 class TestCorpusAwareRouting:
     """Test that corpus signals influence strategy selection.
 
-    Benchmark evidence shows the cross-encoder reranker hurts strong
-    embeddings on ALL corpus types tested:
-    - SciFact (long docs): 0.768 → 0.733 with reranker (-4.6%)
-    - NFCorpus (short docs): 0.384 → 0.346 with reranker (-9.9%)
-    - NFCorpus dense_only: 0.372 (reranker removed = +7.5% recovery)
+    Benchmark evidence shows blended reranker (80% original + 20%
+    cross-encoder) outperforms both dense_only and full reranker
+    replacement for strong embeddings:
+    - SciFact: 0.788 blended vs 0.765 dense_only vs 0.733 full reranker
+    - NFCorpus: 0.387 blended vs 0.372 dense_only vs 0.346 full reranker
 
-    Therefore strong embeddings always route to dense_only.
+    Therefore strong embeddings always route to blended_rerank.
     """
 
-    def test_strong_short_docs_routes_to_dense_only(self) -> None:
+    def test_strong_short_docs_routes_to_blended_rerank(self) -> None:
         router = StrategyRouter()
         signals = _make_signals(short_doc_fraction=0.85)
         result = router.select("strong", _make_spec(), corpus_signals=signals)
-        assert result.name == "dense_only"
+        assert result.name == "blended_rerank"
 
-    def test_strong_long_docs_routes_to_dense_only(self) -> None:
+    def test_strong_long_docs_routes_to_blended_rerank(self) -> None:
         router = StrategyRouter()
         signals = _make_signals(short_doc_fraction=0.1, vocab_overlap_ratio=0.1)
         result = router.select("strong", _make_spec(), corpus_signals=signals)
-        assert result.name == "dense_only"
+        assert result.name == "blended_rerank"
 
-    def test_strong_high_vocab_overlap_routes_to_dense_only(self) -> None:
+    def test_strong_high_vocab_overlap_routes_to_blended_rerank(self) -> None:
         router = StrategyRouter()
         signals = _make_signals(vocab_overlap_ratio=0.4, short_doc_fraction=0.2)
         result = router.select("strong", _make_spec(), corpus_signals=signals)
-        assert result.name == "dense_only"
+        assert result.name == "blended_rerank"
 
     def test_moderate_unaffected_by_corpus_signals(self) -> None:
         router = StrategyRouter()
@@ -114,7 +115,7 @@ class TestCorpusAwareRouting:
 
     def test_no_corpus_signals_preserves_existing_behavior(self) -> None:
         router = StrategyRouter()
-        assert router.select("strong", _make_spec()).name == "dense_only"
+        assert router.select("strong", _make_spec()).name == "blended_rerank"
         assert router.select("moderate", _make_spec()).name == "hybrid"
         assert router.select("weak", _make_spec()).name == "sparse_boost"
 
@@ -125,8 +126,8 @@ class TestNFCorpusScenario:
     def test_nfcorpus_like_corpus_strong_embeddings(self) -> None:
         """NFCorpus: short biomedical docs, high vocab overlap, strong embeddings.
 
-        Benchmark evidence: reranker hurts NFCorpus (0.384 → 0.346 = -9.9%).
-        dense_only recovers to 0.372 (+7.5%). Strong always → dense_only.
+        Benchmark evidence: blended_rerank (0.387) beats dense_only (0.372)
+        and full reranker (0.346). Strong always → blended_rerank.
         """
         router = StrategyRouter()
         signals = _make_signals(
@@ -136,16 +137,17 @@ class TestNFCorpusScenario:
             corpus_size=3633,
         )
         result = router.select("strong", _make_spec(), corpus_signals=signals)
-        assert result.name == "dense_only"
+        assert result.name == "blended_rerank"
         assert result.dense_weight == 1.0
         assert result.sparse_weight == 0.0
-        assert "cross_encoder_rerank" not in result.steps
+        assert "cross_encoder_rerank" in result.steps
+        assert result.rerank_blend_weight == 0.2
 
     def test_scifact_like_corpus_strong_embeddings(self) -> None:
         """SciFact: longer scientific docs, lower overlap, strong embeddings.
 
-        Should route to dense_only (no BM25, no reranker) because benchmark
-        evidence shows the reranker hurts strong embeddings on long docs.
+        Blended reranker (0.788) beats dense_only (0.765) and full
+        reranker (0.733). Strong always → blended_rerank.
         """
         router = StrategyRouter()
         signals = _make_signals(
@@ -155,10 +157,11 @@ class TestNFCorpusScenario:
             corpus_size=5183,
         )
         result = router.select("strong", _make_spec(), corpus_signals=signals)
-        assert result.name == "dense_only"
+        assert result.name == "blended_rerank"
         assert result.dense_weight == 1.0
         assert "sparse_bm25" not in result.steps
-        assert "cross_encoder_rerank" not in result.steps
+        assert "cross_encoder_rerank" in result.steps
+        assert result.rerank_blend_weight == 0.2
 
 
 class TestDenseOnlyStrategy:

@@ -192,7 +192,7 @@ BUILTIN_STRATEGIES: dict[str, PipelineStrategy] = {
 # Tier → strategy name mapping (without corpus signals)
 # With corpus signals, _apply_corpus_overrides refines this further.
 _TIER_STRATEGY_MAP: dict[str, str] = {
-    "strong": "dense_only",
+    "strong": "blended_rerank",
     "moderate": "hybrid",
     "weak": "sparse_boost",
 }
@@ -259,21 +259,20 @@ class StrategyRouter:
     ) -> str:
         """Override strategy based on corpus characteristics.
 
-        For strong embeddings, the cross-encoder reranker consistently
-        hurts performance regardless of corpus type:
-        - SciFact (long docs): 0.768 embed-only → 0.733 with reranker (-4.6%)
-        - NFCorpus (short docs): 0.384 embed-only → 0.346 with reranker (-9.9%)
-        - NFCorpus dense_only: 0.372 (reranker removed = +7.5% recovery)
+        For strong embeddings, blended reranker scoring (80% original +
+        20% cross-encoder) outperforms both pure dense-only and full
+        reranker replacement:
+        - SciFact: 0.788 blended vs 0.765 dense_only vs 0.733 full reranker
+        - NFCorpus: 0.387 blended vs 0.372 dense_only vs 0.346 full reranker
 
-        Strong embeddings always route to dense_only (no BM25, no reranker).
+        Strong embeddings route to blended_rerank (no BM25, blended reranker).
         """
         corpus_size = getattr(signals, "corpus_size", 0)
 
         if quality_tier == "strong":
-            # Benchmark evidence: cross-encoder reranker hurts strong
-            # embeddings on ALL tested corpus types (short docs, long docs,
-            # high overlap, low overlap). Always skip it.
-            return "dense_only"
+            # Benchmark evidence: 80/20 blended reranker beats dense_only
+            # on both SciFact (+2.6%) and NFCorpus (+0.8%).
+            return "blended_rerank"
 
         # Rule: Very small corpus — sparse_boost's depth overshoots
         if corpus_size < 1000 and strategy_name == "sparse_boost":
