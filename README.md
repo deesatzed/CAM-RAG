@@ -61,6 +61,24 @@ benchmark model-backed embeddings such as `intfloat/e5-base-v2`, BGE, Jina,
 Nomic, OpenAI, or Voyage adapters, then plug the winning backend into
 `DenseVectorRetriever`.
 
+
+## Fractal multi-scale retrieval (opt-in)
+
+CAM-RAG can use fractLrag-style three-level indexing (sentence / paragraph /
+document) with derivative signals between levels. It is **not** on by default.
+
+```python
+from cam_rag.rag.spec import RAGAppSpec
+from cam_rag.retrieval.fractal import FractalRetrieverPlugin, HashEmbedding
+
+plugin = FractalRetrieverPlugin(backend=HashEmbedding(dim=64))
+spec = RAGAppSpec(name="my-app", use_pipeline=True, retriever_plugins=[plugin])
+```
+
+`HashEmbedding` is deterministic and needs no GPU. Optional
+`SentenceTransformerEmbedding` backends (e.g. BGE-M3) require
+`sentence-transformers`.
+
 ## Current Status
 
 Alpha platform scaffold with working document-folder ingestion, chunking,
